@@ -82,5 +82,48 @@ class Executor:
         Returns:
             Response data including status, body, and timing
         """
-        # TODO: Implement attack execution with rate limiting
-        raise NotImplementedError("Attack execution not yet implemented")
+        if not self._client:
+            raise RuntimeError("Executor context not initialized. Use 'async with' block.")
+
+        url = path.lstrip("/")
+        
+        # Merge headers
+        # Start timing
+        import time
+        start_time = time.time()
+        
+        try:
+            # Handle different payload types based on method usually, 
+            # but httpx handles 'json' or 'data' or 'params'
+            # simplified: use 'json' for body if method is POST/PUT/PATCH, 'params' otherwise
+            # This is a simplification for the MVP
+            
+            kwargs = {}
+            if headers:
+                kwargs["headers"] = headers
+                
+            if method.upper() in ["POST", "PUT", "PATCH"]:
+                 kwargs["json"] = payload
+            else:
+                 kwargs["params"] = payload
+                 
+            response = await self._client.request(method, url, **kwargs)
+            duration = time.time() - start_time
+            
+            return {
+                "status_code": response.status_code,
+                "response_body": response.text,
+                "duration": duration,
+                "headers": dict(response.headers),
+                "url": str(response.url)
+            }
+            
+        except httpx.RequestError as e:
+            duration = time.time() - start_time
+            return {
+                "status_code": 0,
+                "error": str(e),
+                "duration": duration,
+                "response_body": "",
+                "url": url
+            }
