@@ -116,6 +116,12 @@ def scan(
         "--fail-on-critical",
         help="Exit with code 1 if critical vulnerabilities found",
     ),
+    provider: str = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="LLM provider (openai, anthropic, ollama)",
+    ),
     demo: bool = typer.Option(
         False,
         "--demo",
@@ -184,6 +190,10 @@ def scan(
     if format:
         if "reporting" not in app_config: app_config["reporting"] = {}
         app_config["reporting"]["format"] = format
+
+    if provider:
+        if "agent" not in app_config: app_config["agent"] = {}
+        app_config["agent"]["llm_provider"] = provider
 
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator

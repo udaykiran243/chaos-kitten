@@ -1,0 +1,65 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  chaos-kitten-scan:
+    name: functionality-check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write # Required for PR comments if enabled
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Starting a demo API to scan against (optional, for testing)
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install Demo API dependencies
+        run: |
+          pip install flask flask-cors
+          
+      - name: Start Demo API
+        run: |
+          python examples/demo_api/app.py &
+          echo "Waiting for API to start..."
+          sleep 5
+        env:
+          FLASK_APP: examples/demo_api/app.py
+
+      - name: Run Chaos Kitten
+        id: scan
+        uses: ./.github/actions/chaos-kitten
+        continue-on-error: true
+        with:
+          target-url: 'http://localhost:5000'
+          openapi-spec: './examples/sample_openapi.json'
+          severity-threshold: 'none'
+          llm-provider: 'openai'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Upload SARIF Report
+        if: always() && steps.scan.outputs.sarif-file != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif-file }}
+          
+      - name: Upload HTML Report
+        if: always() && steps.scan.outputs.report-file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-kitten-report
+          path: ${{ steps.scan.outputs.report-file }}
