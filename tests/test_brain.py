@@ -64,7 +64,8 @@ class TestOrchestrator:
         # Mock Analyzer
         finding = MagicMock()
         finding.vulnerability_type = "SQL Injection"
-        finding.severity = "Critical"
+        finding.severity = MagicMock()
+        finding.severity.value = "Critical"
         finding.evidence = "Found SQL Error"
         finding.description = "SQLi detected via error message"
         finding.endpoint = "GET /users"
