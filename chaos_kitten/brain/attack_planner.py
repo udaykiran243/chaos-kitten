@@ -1,10 +1,16 @@
 import glob
-import logging
+
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-
+from typing import Any, Dict, List
+import logging
+import json
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -23,6 +29,38 @@ class AttackProfile:
     remediation: str = ""
     references: List[str] = field(default_factory=list)
 
+ATTACK_PLANNING_PROMPT = """You are a security expert analyzing an API endpoint for vulnerabilities.
+Endpoint: {method} {path}
+Parameters: {parameters}
+Request Body: {body}
+
+Analyze this endpoint and suggest attack vectors. Consider:
+1. Parameter types and names (id, user, query suggest different attacks)
+2. HTTP method (POST/PUT more likely to have injection points)
+3. Authentication requirements
+
+Return a prioritized list of attacks to try. 
+You must respond ONLY with a valid JSON array of objects. Do not include markdown formatting or explanations outside the JSON.
+Each object must have the following keys:
+- "type" (string, e.g., "sql_injection", "xss", "idor", "path_traversal")
+- "name" (string, short name of the attack)
+- "description" (string, what the attack does)
+- "payload" (dict or string, the actual payload to send)
+- "target_param" (string, the parameter or body field to target)
+- "expected_status" (integer, expected HTTP status if vulnerable, e.g., 500)
+- "priority" (string, "high", "medium", or "low")
+"""
+
+PAYLOAD_SUGGESTION_PROMPT = """You are an expert penetration tester.
+Given the attack type '{attack_type}' and the context of the endpoint '{context}',
+suggest a list of 5 specific, creative payloads to test for vulnerabilities.
+
+Respond ONLY with a valid JSON array of strings representing the payloads. Do not include markdown blocks.
+"""
+
+REASONING_PROMPT = """You are an API security tester.
+How would you test a field named '{field_name}' of type '{field_type}' for vulnerabilities?
+Provide a concise, 1-2 sentence reasoning."""
 
 class AttackPlanner:
     """Plan attacks based on API structure and context.
@@ -34,7 +72,7 @@ class AttackPlanner:
     - Adapt based on responses
     """
     
-    def __init__(self, endpoints: List[Dict[str, Any]], toys_path: str = "toys/") -> None:
+    def __init__(self, endpoints: list[dict[str, Any]], toys_path: str = "toys/",llm_provider: str = "anthropic",temperature: float = 0.7) -> None:
         """Initialize the attack planner.
         
         Args:
@@ -43,12 +81,23 @@ class AttackPlanner:
         """
         self.endpoints = endpoints
         self.toys_path = toys_path
-        self.attack_profiles: List[AttackProfile] = []
+        self.attack_profiles: list[dict[str, Any]] = []
+        self._cache: dict[str, Any] = {}
+        self.llm_provider=llm_provider.lower()
+        self.temperature=temperature
+        self.llm=self._init_llm()
+        self.load_attack_profiles()
+    def _init_llm(self)->Any:
+        if self.llm_provider=='anthropic':
+            return ChatAnthropic(model="claude-3-5-sonnet-20241022",temperature=self.temperature)
+        elif self.llm_provider=='openai':
+            return ChatOpenAI(model="gpt-4",temperature=self.temperature)
+        elif self.llm_provider == "ollama":
+            return ChatOllama(model="llama3.1", temperature=self.temperature)
+        else:
+            logger.warning(f"Unknown LLM provider {self.llm_provider}. Falling back to Claude.")
+            return ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=self.temperature)
         
-        # Configure logging if not already configured
-        # Note: Library code should generally not call basicConfig().
-        # Leaving this to the application entry point.
-        pass
     
     def load_attack_profiles(self) -> None:
         """Load all attack profiles from the toys directory."""
@@ -124,88 +173,95 @@ class AttackPlanner:
                 ...
             ]
         """
-        planned_attacks = []
         
-        if not self.attack_profiles:
-            self.load_attack_profiles()
+        
+        path = endpoint.get("path", "")
+        method = endpoint.get("method", "GET")
+        params = endpoint.get("parameters", [])
+        body = endpoint.get("requestBody", {})
+        cache_key = f"{method}:{path}:{json.dumps(params, sort_keys=True)}:{json.dumps(body, sort_keys=True)}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+        
+        prompt = ChatPromptTemplate.from_template(ATTACK_PLANNING_PROMPT)
+        parser=JsonOutputParser()
+        chain = prompt | self.llm | parser
+        attacks = []
+        
+        # 1. Attempt LLM Planning
+        try:
+            prompt = ChatPromptTemplate.from_template(ATTACK_PLANNING_PROMPT)
+            parser = JsonOutputParser()
+            chain = prompt | self.llm | parser
             
-        endpoint_path = endpoint.get("path", "")
-        method = endpoint.get("method", "").lower()
-        
-        # Collect potential target fields from the endpoint definition
-        targetable_fields = [] # (name, location, type)
-        
-        # 1. Check parameters (query, path, header, cookie)
-        for param in endpoint.get("parameters", []):
-            p_name = param.get("name")
-            p_in = param.get("in")
-            p_schema = param.get("schema", {})
-            p_type = p_schema.get("type", "string")
-            if p_name:
-                targetable_fields.append({"name": p_name, "location": p_in, "type": p_type})
-                
-        # 2. Check request body
-        request_body = endpoint.get("requestBody") or {}
-        content = request_body.get("content", {})
-        for content_type, media_type in content.items():
-            schema = media_type.get("schema", {})
-            properties = schema.get("properties", {})
-            for prop_name, prop_details in properties.items():
-                p_type = prop_details.get("type", "string")
-                targetable_fields.append({"name": prop_name, "location": "body", "type": p_type})
-
-        # Iterate through loaded profiles and find matches
-        for profile in self.attack_profiles:
-            # Simple heuristic: matching Method semantics
-            # Injection attacks usually on POST/PUT body or GET query params
-            # This is a simplification; a real scanner would be more comprehensive.
+            generated_attacks = chain.invoke({
+                "method": method,
+                "path": path,
+                "parameters": json.dumps(params),
+                "body": json.dumps(body)
+            })
             
-            for field_info in targetable_fields:
-                field_name = field_info["name"]
-                _ = field_info["type"] # Unused for now, but keeping for future type awareness
+            if isinstance(generated_attacks, list):
+                priority_map = {"high": 0, "medium": 1, "low": 2}
+                generated_attacks.sort(key=lambda x: priority_map.get(str(x.get("priority", "low")).lower(), 3))
+                attacks = generated_attacks
+                logger.info(f"LLM generated {len(attacks)} attack vectors for {method} {path}")
                 
-                # Check 1: Field name match (Exact or Fuzzy)
-                # Exact match
-                is_match = field_name in profile.target_fields
+        except Exception as e:
+            logger.warning(f"LLM attack planning failed for {path}: {str(e)}. Falling back to rule-based profiles.")
+            
+            if not self.attack_profiles:
+                target = "q" if params else "body"
+                attacks.append({
+                    "type": "sql_injection",
+                    "name": "Fallback SQLi Probe",
+                    "description": "Basic SQL injection test (No profiles loaded)",
+                    "payload": {target: "' OR 1=1 --"},
+                    "target_param": target,
+                    "expected_status": 500,
+                    "priority": "high"
+                })
+            else:
+                param_names = [p.get("name") for p in params if isinstance(p, dict)]
                 
-                # Fuzzy match (e.g., "user_email" matches "email" if "email" is a distinct word part)
-                if not is_match:
-                    # properly handle snake_case and other delimiters
-                    parts = re.split(r'[^a-zA-Z0-9]', field_name.lower())
-                    for target in profile.target_fields:
-                        if target.lower() in parts:
-                            is_match = True
-                            break
-                            
-                if is_match:
-                    # Check 2: Type compatibility (Basic)
-                    # Use categories to determine if type mismatch is critical
-                    # e.g., SQLi (string) vs ID (integer) - sometimes valid, sometimes not.
-                    # For now, we'll be permissive but prioritize string fields for injections.
+                for profile in self.attack_profiles:
+                    payload_target = None
                     
-                    # Logic for filtering based on method/category
-                    # e.g. Don't test body interactions on GET requests unless strictly specific
-                    if field_info["location"] == "body" and method == "get":
-                        continue
+                    if params and "query" in profile.target_fields:
+                        payload_target = param_names[0] if param_names else "q"
+                    elif body and "body" in profile.target_fields:
+                        payload_target = "body"
                         
-                    attack_plan = {
-                        "profile_name": profile.name,
-                        "endpoint": endpoint_path,
-                        "method": method,
-                        "field": field_name,
-                        "location": field_info["location"],
-                        "payloads": profile.payloads,
-                        "expected_indicators": profile.success_indicators,
-                        "severity": profile.severity
-                    }
-                    planned_attacks.append(attack_plan)
+                    if payload_target:
+                        attacks.append({
+                            "type": profile.category,
+                            "name": profile.name,
+                            "description": profile.description,
+                            "payload": {payload_target: profile.payloads[0] if profile.payloads else "TEST"},
+                            "target_param": payload_target,
+                            "expected_status": 400,
+                            "priority": profile.severity
+                        })
 
-        # Prioritize by severity
-        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-        planned_attacks.sort(key=lambda x: severity_order.get(x["severity"].lower(), 99))
+        self._cache[cache_key] = attacks  
+        return attacks
+    def suggest_payloads(self, attack_type: str, context: dict[str, Any]) -> list[str]:
+        """Generate context-specific payloads using LLM intelligence."""
+        prompt = ChatPromptTemplate.from_template(PAYLOAD_SUGGESTION_PROMPT)
+        chain = prompt | self.llm | JsonOutputParser()
         
-        return planned_attacks
-    
+        try:
+            payloads = chain.invoke({
+                "attack_type": attack_type,
+                "context": json.dumps(context)
+            })
+            if isinstance(payloads, list):
+                return payloads
+        except Exception as e:
+            logger.warning(f"LLM payload suggestion failed: {e}")
+            
+        # fallback
+        return ["' OR 1=1 --", "<script>alert(1)</script>", "../../../etc/passwd"]
     def reason_about_field(self, field_name: str, field_type: str) -> str:
         """Use LLM to reason about potential vulnerabilities for a field.
         
@@ -218,7 +274,17 @@ class AttackPlanner:
             field_type: Data type of the field
             
         Returns:
-            Reasoning about what to test
-        """
-        # TODO: Implement LLM reasoning in future iteration
-        return f"Standard testing for {field_type} field '{field_name}'"
+            Reasoning about what to test"""
+        
+        prompt = ChatPromptTemplate.from_template(REASONING_PROMPT)
+        chain = prompt | self.llm
+        
+        try:
+            response = chain.invoke({
+                "field_name": field_name,
+                "field_type": field_type
+            })
+            return response.content
+        except Exception as e:
+            logger.warning(f"LLM field reasoning failed: {e}")
+            return f"Test '{field_name}' of type '{field_type}' with boundary values and injection strings."
