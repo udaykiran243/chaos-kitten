@@ -1,0 +1,134 @@
+id: crypto_weak
+name: Weak Cryptography Usage
+description: >
+  Detects weak, outdated, or insecure cryptographic implementations including
+  broken hashing algorithms, weak encryption modes, insecure TLS versions,
+  predictable random number generation, and poor key management practices.
+severity: high
+category: cryptography
+
+references:
+  - cwe: CWE-327
+  - cwe: CWE-321
+  - cwe: CWE-338 
+  - owasp: A02:2021 
+
+tags:
+  - crypto
+  - weak-hashing
+  - weak-encryption
+  - tls
+  - key-management
+  - rng
+
+payloads:
+  # Weak Hashing
+  - name: md5_hash_detect
+    type: keyword
+    pattern: "md5("
+    description: "Usage of MD5 hashing (broken/collision-prone)."
+  - name: sha1_hash_detect
+    type: keyword
+    pattern: "sha1("
+    description: "Usage of SHA-1 hashing (deprecated)."
+  - name: content_md5_header
+    type: header
+    pattern: "Content-MD5"
+    description: "Legacy HTTP header relying on MD5 checksums."
+  - name: unsalted_hash_regex
+    type: regex
+    pattern: "hash\\s*=\\s*['\"][a-f0-9]{32}['\"]"
+    description: "Potential 32-char (MD5) unsalted static hash."
+
+  # Weak Encryption
+  - name: weak_algo_des
+    type: keyword
+    pattern: "DES"
+    description: "DES is insecure and easily brute-forced."
+  - name: weak_algo_3des
+    type: keyword
+    pattern: "3DES"
+    description: "Triple DES is deprecated and vulnerable to Sweet32."
+  - name: aes_ecb_mode
+    type: keyword
+    pattern: "AES/ECB/"
+    description: "ECB mode leaks data patterns (use GCM or CBC instead)."
+  - name: cipher_getinstance_ecb
+    type: regex
+    pattern: "Cipher\\.getInstance\\(.*ECB.*\\)"
+    description: "Generic detection of insecure ECB mode instantiation."
+  - name: static_iv_usage
+    type: regex
+    pattern: "IV\\s*=\\s*['\"]0000000000000000['\"]"
+    description: "Detection of static or all-zero Initialization Vectors."
+
+  # Weak TLS/SSL Protocols
+  - name: proto_sslv2
+    type: config
+    pattern: "SSLv2"
+    description: "SSL 2.0 is critically insecure (DROWN attack)."
+  - name: proto_sslv3
+    type: config
+    pattern: "SSLv3"
+    description: "SSL 3.0 is vulnerable to POODLE attacks."
+  - name: proto_tls1_0
+    type: config
+    pattern: "TLSv1.0"
+    description: "TLS 1.0 is deprecated and vulnerable to BEAST."
+  - name: proto_tls1_1
+    type: config
+    pattern: "TLSv1.1"
+    description: "TLS 1.1 is deprecated and should be disabled."
+  - name: ssl_verify_false
+    type: code
+    pattern: "verify=False"
+    description: "SSL certificate verification disabled in code."
+
+  # Random Number Generation
+  - name: weak_rng_math_random
+    type: code
+    pattern: "Math.random()"
+    description: "Non-cryptographic RNG used for potentially sensitive tokens."
+  - name: weak_rng_java_random
+    type: code
+    pattern: "java.util.Random"
+    description: "Linear Congruential Generator is predictable; use SecureRandom."
+  - name: predictable_seed_time
+    type: code
+    pattern: "srand(time(NULL))"
+    description: "RNG seeded with predictable system time."
+
+  # Key Management
+  - name: hardcoded_rsa_private
+    type: regex
+    pattern: "-----BEGIN RSA PRIVATE KEY-----"
+    description: "Hardcoded private key found in source/response."
+  - name: jwt_alg_none
+    type: regex
+    pattern: "\"alg\":\\s*\"none\""
+    description: "JWT header explicitly disabling signature verification."
+  - name: weak_pbkdf2_iterations
+    type: regex
+    pattern: "PBKDF2.*iterations\\s*[:=]\\s*[0-9]{1,3}(?!00)"
+    description: "Low iteration count for PBKDF2 (< 10,000)."
+  - name: hardcoded_secret_token
+    type: regex
+    pattern: "(?i)(api_key|secret|token)\\s*=\\s*['\"][a-zA-Z0-9_\\-]{16,}['\"]"
+    description: "Potential hardcoded API secret or static token."
+
+success_indicators:
+  - "Server accepts handshake for SSLv2, SSLv3, or TLS 1.0/1.1."
+  - "Response headers include 'Content-MD5'."
+  - "Source code contains imports for outdated providers (e.g., java.security.MessageDigest.getInstance('MD5'))."
+  - "Presence of plaintext private keys or PEM blocks in public-facing files."
+  - "JSON Web Tokens (JWT) with 'alg: none' successfully accepted by the API."
+
+remediation:
+  summary: "Upgrade cryptographic primitives to modern, authenticated standards."
+  steps:
+    - "Encryption: Replace DES/3DES/RC4 with AES-256-GCM or ChaCha20-Poly1305."
+    - "Hashing: Replace MD5/SHA1 with Argon2, scrypt, or bcrypt for passwords; SHA-256/SHA-3 for integrity."
+    - "Modes: Never use ECB mode. Use AEAD (Authenticated Encryption with Associated Data) like GCM."
+    - "TLS: Disable SSLv2/v3 and TLS 1.0/1.1. Enforce TLS 1.2 or 1.3 only."
+    - "RNG: Use cryptographically secure PRNGs (e.g., /dev/urandom, java.security.SecureRandom)."
+    - "Secrets: Move hardcoded keys to a Secret Management Service (AWS KMS, HashiCorp Vault)."
