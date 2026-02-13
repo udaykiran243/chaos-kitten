@@ -49,6 +49,7 @@ dependencies = [
     "prance[osv]>=23.0.0",
     "jsonschema>=4.0",
     "requests>=2.32.4",
+    "graphql-core>=3.2.0",
 ]
 
 [project.optional-dependencies]
