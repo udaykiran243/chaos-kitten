@@ -10,7 +10,7 @@ import logging
 import json
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 logger=logging.getLogger(__name__)
@@ -187,7 +187,7 @@ class AttackPlanner:
         method = endpoint.get("method", "GET")
         params = endpoint.get("parameters", [])
         body = endpoint.get("requestBody", {})
-        cache_key = f"{method}:{path}:{str(params)}:{str(body)}"
+        cache_key = f"{method}:{path}:{json.dumps(params, sort_keys=True)}:{json.dumps(body, sort_keys=True)}"
         if cache_key in self._cache:
             return self._cache[cache_key]
         
