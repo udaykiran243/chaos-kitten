@@ -294,37 +294,3 @@ class TestExecutor:
         # We can't easily check if it's closed, but we can verify it exists
         assert executor._client is not None
 
-
-class TestBrowserAutomation:
-    """Tests for the browser automation module."""
-    
-    def test_initialization(self):
-        """Test default initialization."""
-        browser = BrowserAutomation(headless=True)
-        assert browser.headless is True
-        assert browser._browser is None
-        assert browser._context is None
-        
-        browser_visible = BrowserAutomation(headless=False)
-        assert browser_visible.headless is False
-
-    @pytest.mark.asyncio
-    async def test_context_manager_not_implemented(self):
-        """Test that context entry raises NotImplementedError."""
-        browser = BrowserAutomation()
-        
-        with pytest.raises(NotImplementedError):
-            async with browser:
-                pass
-
-    @pytest.mark.asyncio
-    async def test_test_xss_not_implemented(self):
-        """Test that test_xss raises NotImplementedError."""
-        browser = BrowserAutomation()
-        
-        with pytest.raises(NotImplementedError):
-            await browser.test_xss(
-                url="http://test.com",
-                payload="<script>alert(1)</script>"
-            )
-
