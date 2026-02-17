@@ -34,7 +34,7 @@ class Config:
                 "Run 'chaos-kitten init' to create one."
             )
         
-        with open(self.config_path) as f:
+        with open(self.config_path, encoding="utf-8") as f:
             self._config = yaml.safe_load(f)
         
         if self._config is None:
@@ -71,8 +71,16 @@ class Config:
             if field not in self._config:
                 raise ValueError(f"Missing required configuration field: {field}")
         
-        if "base_url" not in self._config.get("target", {}):
-            raise ValueError("Missing required field: target.base_url")
+        target = self._config.get("target", {})
+        target_type = target.get("type", "rest")
+        
+        if target_type == "graphql":
+            if "graphql_endpoint" not in target and "graphql_schema" not in target:
+                raise ValueError("GraphQL target requires either 'graphql_endpoint' or 'graphql_schema'")
+        else:
+            # Default to REST behavior
+            if "base_url" not in target:
+                raise ValueError("Missing required field: target.base_url")
     
     @property
     def target(self) -> dict[str, Any]:

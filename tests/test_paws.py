@@ -5,11 +5,35 @@ import pytest
 import httpx
 import respx
 from chaos_kitten.paws.executor import Executor
+from chaos_kitten.paws.browser import BrowserAutomation
 
 
 class TestExecutor:
     """Tests for the HTTP executor."""
     
+    def test_initialization_defaults(self):
+        """Test default values and url normalization."""
+        # Test defaults
+        executor = Executor(base_url="http://test.com")
+        assert executor.rate_limit == 10
+        assert executor.timeout == 30
+        assert executor.auth_type == "none"
+        assert executor.auth_token is None
+        assert executor.base_url == "http://test.com"
+
+        # Test base_url normalization (strip trailing slash)
+        executor_slash = Executor(base_url="http://test.com/")
+        assert executor_slash.base_url == "http://test.com"
+        
+        # Test custom values
+        executor_custom = Executor(
+            base_url="http://test.com", 
+            rate_limit=5, 
+            timeout=60
+        )
+        assert executor_custom.rate_limit == 5
+        assert executor_custom.timeout == 60
+
     def test_build_headers_bearer(self):
         """Test building headers with bearer auth."""
         executor = Executor(
@@ -269,14 +293,4 @@ class TestExecutor:
         # After exiting context, client should be closed
         # We can't easily check if it's closed, but we can verify it exists
         assert executor._client is not None
-
-
-class TestBrowserAutomation:
-    """Tests for browser automation."""
-    
-    @pytest.mark.asyncio
-    async def test_xss_detection(self):
-        """Test XSS detection with Playwright."""
-        # TODO: Implement test when browser automation is ready
-        pass
 
