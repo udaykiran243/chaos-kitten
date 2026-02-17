@@ -48,3 +48,7 @@ remediation: |
   Use SameSite cookie attributes (Strict or Lax).
   Avoid using GET requests for sensitive actions.
   Require re-authentication or confirmation for critical operations.
+
+references:
+  - "https://owasp.org/www-community/attacks/csrf"
+  - "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
