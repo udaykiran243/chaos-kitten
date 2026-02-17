@@ -156,6 +156,25 @@ class AttackPlanner:
 
         # Iterate through loaded profiles and find matches
         for profile in self.attack_profiles:
+            # Special handling for GraphQL Security profile
+            if profile.name == "GraphQL Security":
+                # Check if endpoint path ends with /graphql
+                if endpoint_path.endswith("/graphql") or "graphql" in endpoint_path.lower():
+                    # Plan attacks for this endpoint
+                    # GraphQL usually has a single entry point, so we attack the 'query' or body
+                    attack_plan = {
+                        "profile_name": profile.name,
+                        "endpoint": endpoint_path,
+                        "method": method,
+                        "field": "query", # Virtual field name
+                        "location": "graphql", # Special location for executor
+                        "payloads": profile.payloads,
+                        "expected_indicators": profile.success_indicators,
+                        "severity": profile.severity
+                    }
+                    planned_attacks.append(attack_plan)
+                continue
+
             # Special handling for file upload profile
             if profile.name == "File Upload Bypass":
                 # Check if endpoint accepts multipart/form-data
