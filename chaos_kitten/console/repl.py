@@ -34,7 +34,7 @@ class ChaosREPL:
         while True:
             try:
                 # Dynamic prompt based on target
-                prompt_text = f"[bold cyan]chaos-kitten[/bold cyan]"
+                prompt_text = "[bold cyan]chaos-kitten[/bold cyan]"
                 if self.target_url:
                     prompt_text += f" ([dim]{self.target_url}[/dim])"
                 prompt_text += " > "
@@ -53,7 +53,11 @@ class ChaosREPL:
 
     async def handle_command(self, command_str: str):
         """Parse and execute a command."""
-        parts = shlex.split(command_str)
+        try:
+            parts = shlex.split(command_str)
+        except ValueError as e:
+            self.console.print(f"[red]Parse error:[/red] {e} (check for unmatched quotes)")
+            return
         cmd = parts[0].lower()
         args = parts[1:]
         
@@ -188,7 +192,7 @@ class ChaosREPL:
                 # Try to pretty print JSON
                 parsed = json.loads(body)
                 self.console.print(Syntax(json.dumps(parsed, indent=2), "json", theme="monokai", word_wrap=True))
-            except:
+            except Exception:
                 self.console.print(body)
         else:
             self.console.print("[dim](Empty response)[/dim]")
