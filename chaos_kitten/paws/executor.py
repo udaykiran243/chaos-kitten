@@ -136,13 +136,20 @@ class Executor:
             elif method in ("POST", "PUT", "PATCH"):
                 # Handle GraphQL
                 if graphql_query:
+                    # GraphQL is typically POST-only; warn if a different method was requested
+                    if method != "POST":
+                        logger.debug(
+                            "GraphQL queries are typically sent via POST, "
+                            "but '%s' was requested for %s", method, path
+                        )
                     # GraphQL usually expects {"query": "...", "variables": {...}}
                     # payload can be used for variables if provided
                     json_body = {"query": graphql_query}
                     if payload:
                         json_body["variables"] = payload
                     
-                    response = await self._client.post(
+                    response = await self._client.request(
+                        method,
                         path,
                         json=json_body,
                         headers=request_headers,

@@ -17,7 +17,7 @@ target_fields:
 payloads:
   # --- Introspection ---
   # Standard introspection query to reveal schema
-  - "{\"query\": \"query { __schema { types { name fields { name } } } }\"}"
+  - "query { __schema { types { name fields { name } } } }"
   
   # --- Visualization / GraphiQL ---
   # Attempt to access GraphiQL interface (usually GET or separate endpoint, but payload here for completeness)
@@ -25,15 +25,15 @@ payloads:
   
   # --- Depth Limit Test ---
   # Deeply nested query to test for lack of depth limiting
-  - "{\"query\": \"query { viewer { repositories { owner { repositories { owner { repositories { name } } } } } } }\"}"
+  - "query { viewer { repositories { owner { repositories { owner { repositories { name } } } } } } }"
   
   # --- Alias Overloading / Batching (DoS) ---
   # Multiple aliases to fetch same resource many times
-  - "{\"query\": \"query { a: viewer { name } b: viewer { name } c: viewer { name } d: viewer { name } e: viewer { name } }\"}"
+  - "query { a: viewer { name } b: viewer { name } c: viewer { name } d: viewer { name } e: viewer { name } }"
   
   # --- Field Suggestion / Typo ---
   # Trigger "Did you mean..." suggestions which hint at valid fields
-  - "{\"query\": \"query { users { password } }\"}" 
+  - "query { users { password } }"
 
 # Indicators that suggest successful exploitation
 success_indicators:
@@ -42,9 +42,7 @@ success_indicators:
     - "IntrospectionQuery"
     - "GenericScalar"
     - "Did you mean"
-    - "locations" # Standard GraphQL error format
-  status_codes:
-    - 200
+    - "__typename"  # GraphQL-specific type indicator
   absence_of:
     - "Query too complex"
     - "Depth limit exceeded"
