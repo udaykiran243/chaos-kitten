@@ -32,8 +32,8 @@ payloads:
   #Weak TLS/SSL Protocols
   - "SSLv2"
   - "SSLv3"
-  - "TLSv1\.0"
-  - "TLSv1\.1"
+  - "TLSv1\\.0"
+  - "TLSv1\\.1"
   - "verify=False"
   #Random Number Generation
   - "Math.random()"
@@ -54,8 +54,8 @@ success_indicators:
     - "MD5"
     - "SHA1"
     - "SSLv"
-    - "TLSv1\.0"
-    - "TLSv1\.1"
+    - "TLSv1\\.0"
+    - "TLSv1\\.1"
     - "DES"
     - "ECB"
   status_codes:
@@ -77,4 +77,3 @@ references:
   - "https://cwe.mitre.org/data/definitions/321.html"
   - "https://cwe.mitre.org/data/definitions/338.html"
   - "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
-  
