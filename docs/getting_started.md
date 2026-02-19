@@ -21,6 +21,8 @@ pip install chaos-kitten
 ```bash
 git clone https://github.com/mdhaarishussain/chaos-kitten.git
 cd chaos-kitten
+pip install -e .        # Standard install (no browser)
+# Optional: browser exploit validation
 pip install -e .[browser]
 playwright install chromium
 ```
