@@ -96,6 +96,11 @@ class Config:
     def executor(self) -> Dict[str, Any]:
         """Get executor configuration."""
         return self._config.get("executor", {})
+
+    @property
+    def recon(self) -> Dict[str, Any]:
+        """Get reconnaissance configuration."""
+        return self._config.get("recon", {})
     
     @property
     def safety(self) -> Dict[str, Any]:
