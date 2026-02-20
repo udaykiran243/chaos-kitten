@@ -22,7 +22,7 @@ class Config:
         """Get path to configuration file."""
         return self._config_path
 
-    def load(self) -> "Dict[str, Any]":
+    def load(self) -> Dict[str, Any]:
         """Load and validate configuration.
         
         Returns:
