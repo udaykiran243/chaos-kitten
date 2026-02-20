@@ -1,9 +1,6 @@
 """Tests for checkpointing functionality."""
 
-import json
-import time
 import pytest
-from pathlib import Path
 from chaos_kitten.utils.checkpoint import (
     CheckpointData,
     save_checkpoint,
