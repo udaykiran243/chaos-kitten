@@ -187,6 +187,20 @@ def scan(
         orchestrator = Orchestrator(cfg, chaos=chaos, chaos_level=chaos_level)
         results = asyncio.run(orchestrator.run())
         
+        # Summary of findings
+        vulnerabilities = results.get("vulnerabilities", [])
+        chaos_findings = results.get("chaos_findings", [])
+        total = len(vulnerabilities) + len(chaos_findings)
+        
+        if total > 0:
+            console.print(f"\n[bold red]🔥 Found {total} potential vulnerabilities![/bold red]")
+            if vulnerabilities:
+                console.print(f"   Standard Scan: {len(vulnerabilities)}")
+            if chaos_findings:
+                console.print(f"   Chaos Mode: {len(chaos_findings)}")
+        else:
+            console.print("\n[bold green]✅ No vulnerabilities found. Your API is a tough kitten![/bold green]")
+
         # Generate report (mock for now)
         console.print(f"\n📝 Generating {format} report in {output}...")
         
