@@ -1,0 +1,108 @@
+name: 'Chaos Kitten Security Scan'
+description: 'AI-powered API security testing with Chaos Kitten'
+author: 'mdhaarishussain'
+
+inputs:
+  target-url:
+    description: 'Base URL of the API to test'
+    required: true
+  openapi-spec:
+    description: 'Path to OpenAPI specification file'
+    required: true
+  severity-threshold:
+    description: 'Minimum severity to fail (critical, high, medium, low, none)'
+    required: false
+    default: 'high'
+  llm-provider:
+    description: 'LLM provider to use (openai, anthropic, ollama)'
+    required: false
+    default: 'openai'
+  recursion-limit:
+    description: 'Maximum recursion depth for the scanner'
+    required: false
+    default: '10'
+
+outputs:
+  vulnerabilities-found:
+    description: 'Total number of vulnerabilities found'
+  sarif-file:
+    description: 'Path to the generated SARIF report'
+  report-file:
+    description: 'Path to the generated HTML report'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Checkout Chaos Kitten
+      uses: actions/checkout@v4
+      with:
+        repository: 'Apertre/chaos-kitten'
+        ref: 'main'
+        path: 'chaos-kitten-tool'
+        clean: false
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [ -f "pyproject.toml" ] && grep -q "chaos-kitten" "pyproject.toml"; then
+          echo "Detected Chaos Kitten in current workspace. Installing local version..."
+          pip install .
+        elif [ -d "chaos-kitten-tool" ]; then
+          echo "Installing Chaos Kitten from Action repo..."
+          pip install ./chaos-kitten-tool
+        else
+          echo "Installing Chaos Kitten from PyPI/Git..."
+          pip install git+https://github.com/Apertre/chaos-kitten.git@main
+        fi
+
+    - name: Create reports directory
+      shell: bash
+      run: mkdir -p ./reports
+
+    - name: Run Chaos Kitten Scan
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
+        SEVERITY_THRESHOLD: ${{ inputs.severity-threshold }}
+      run: |
+        echo "::group::Security Scan"
+        # Run scan, allowing failure so we can still process reports
+        chaos-kitten scan \
+          --target "${{ inputs.target-url }}" \
+          --spec "${{ inputs.openapi-spec }}" \
+          --provider "${{ inputs.llm-provider }}" \
+          --format sarif \
+          --output ./reports || echo "Scan command exited with error"
+        
+        # Set outputs
+        if [ -f "./reports/results.sarif" ]; then
+            echo "sarif-file=$(pwd)/reports/results.sarif" >> $GITHUB_OUTPUT
+        fi
+
+        if [ -f "./reports/results.html" ]; then
+            echo "report-file=$(pwd)/reports/results.html" >> $GITHUB_OUTPUT
+        fi
+        echo "::endgroup::"
+
+    - name: Process Results
+      shell: bash
+      env:
+        SEVERITY_THRESHOLD: ${{ inputs.severity-threshold }}
+        CONVERTER_PATH: ${{ github.action_path }}/sarif-converter.py
+      run: |
+        echo "::group::Results Analysis"
+        python3 "$CONVERTER_PATH" ./reports "${SEVERITY_THRESHOLD:-high}"
+        EXIT_CODE=$?
+        
+        if [ -f "scan-summary.md" ] && [ -n "$GITHUB_STEP_SUMMARY" ]; then
+            cat scan-summary.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+        
+        echo "::endgroup::"
+        exit $EXIT_CODE

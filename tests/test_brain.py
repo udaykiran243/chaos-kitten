@@ -2,17 +2,100 @@
 
 import json
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 from chaos_kitten.brain.openapi_parser import OpenAPIParser
+from chaos_kitten.brain.orchestrator import Orchestrator
 
 
 class TestOrchestrator:
     """Tests for the Orchestrator."""
     
-    def test_orchestrator_initialization(self):
-        """Test that orchestrator initializes correctly."""
-        # TODO: Implement test
-        pass
+    @pytest.mark.asyncio
+    @patch("chaos_kitten.brain.orchestrator.OpenAPIParser")
+    @patch("chaos_kitten.brain.orchestrator.AttackPlanner")
+    @patch("chaos_kitten.brain.orchestrator.Executor")
+    @patch("chaos_kitten.brain.orchestrator.Reporter")
+    @patch("chaos_kitten.brain.orchestrator.ResponseAnalyzer")
+    async def test_orchestrator_run_flow(
+        self, 
+        MockAnalyzer, 
+        MockReporter, 
+        MockExecutor, 
+        MockPlanner, 
+        MockParser, 
+        tmp_path
+    ):
+        """Test that orchestrator initializes correctly and runs a scan."""
+        
+        # Setup mocks
+        config = {
+            "target": {
+                "base_url": "http://test.com",
+                "openapi_spec": "spec.json"
+            },
+            "executor": {"rate_limit": 10},
+            "reporting": {"output_path": str(tmp_path), "format": "json"}
+        }
+        
+        # Mock Parser
+        parser_instance = MockParser.return_value
+        parser_instance.get_endpoints.return_value = [
+            {"method": "GET", "path": "/users"}
+        ]
+        
+        # Mock Planner
+        planner_instance = MockPlanner.return_value
+        planner_instance.plan_attacks.return_value = [
+            {"type": "sql_injection", "name": "SQLi Test", "payload": "' OR 1=1 --"}
+        ]
+        
+        # Mock Executor
+        executor_instance = AsyncMock()
+        MockExecutor.return_value.__aenter__.return_value = executor_instance
+        executor_instance.execute_attack.return_value = {
+            "status_code": 500,
+            "response_body": "SQL Syntax Error",
+            "duration": 0.1,
+            "headers": {},
+            "url": "http://test.com/users"
+        }
+        
+        # Mock Analyzer
+        finding = MagicMock()
+        finding.vulnerability_type = "SQL Injection"
+        finding.severity = MagicMock()
+        finding.severity.value = "Critical"
+        finding.evidence = "Found SQL Error"
+        finding.description = "SQLi detected via error message"
+        finding.endpoint = "GET /users"
+
+        analyzer_instance = MockAnalyzer.return_value
+        analyzer_instance.analyze.return_value = finding
+        
+        # Mock Reporter
+        reporter_instance = MockReporter.return_value
+        reporter_instance.generate.return_value = Path("report.json")
+        
+        # Run Orchestrator
+        orchestrator = Orchestrator(config)
+        results = await orchestrator.run()
+        
+        # Assertions
+        assert results["summary"]["total_endpoints"] == 1
+        assert results["summary"]["tested_endpoints"] == 1
+        assert len(results["vulnerabilities"]) == 1
+        assert results["vulnerabilities"][0]["type"] == "SQL Injection"
+        
+        # Verify calls
+        parser_instance.parse.assert_called_once()
+        planner_instance.plan_attacks.assert_called()
+        executor_instance.execute_attack.assert_called_with(
+            method="GET",
+            path="/users",
+            payload="' OR 1=1 --"
+        )
+        reporter_instance.generate.assert_called_once()
 
 
 class TestOpenAPIParser:

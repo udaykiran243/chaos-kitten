@@ -51,7 +51,7 @@ Agent Thought: "I'll test negative prices, zero, NaN, and inject SQL strings"
 
 **Capabilities:**
 - Execute HTTP requests asynchronously
-- Support for various authentication methods (Bearer, Basic, OAuth)
+- Support for various authentication methods (Bearer, Basic)
 - Headless browser integration for client-side validation
 - Rate limiting and politeness controls (respect target systems)
 
@@ -173,7 +173,7 @@ target:
   base_url: "http://localhost:3000"
   openapi_spec: "./openapi.json"
   auth:
-    type: "bearer"  # bearer, basic, oauth, none
+    type: "bearer"  # bearer, basic, none
     token: "${API_TOKEN}"
 
 agent:

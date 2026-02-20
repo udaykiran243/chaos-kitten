@@ -2,6 +2,10 @@
 
 from typing import Any, Dict, Optional, Union
 import httpx
+import asyncio
+import time
+
+logger = logging.getLogger(__name__)
 
 
 class Executor:
@@ -27,12 +31,19 @@ class Executor:
         
         Args:
             base_url: Base URL of the target API
-            auth_type: Authentication type (bearer, basic, oauth, none)
+            auth_type: Authentication type (bearer, basic, none)
             auth_token: Authentication token/credentials
             rate_limit: Maximum requests per second
             timeout: Request timeout in seconds
+        
+        Raises:
+            ValueError: If auth_type is not supported.
         """
         self.base_url = base_url.rstrip("/")
+        
+        if auth_type not in ["bearer", "basic", "none"]:
+            raise ValueError(f"Unsupported auth_type: {auth_type}. Supported types: bearer, basic, none")
+            
         self.auth_type = auth_type
         self.auth_token = auth_token
         self.rate_limit = rate_limit
@@ -46,6 +57,8 @@ class Executor:
             timeout=self.timeout,
             headers=self._build_headers(),
         )
+        # Initialize rate limiter semaphore
+        self._rate_limiter = asyncio.Semaphore(self.rate_limit)
         return self
     
     async def __aexit__(self, *args: Any) -> None:
@@ -57,7 +70,7 @@ class Executor:
         """Build request headers including authentication."""
         headers = {"User-Agent": "ChaosKitten/0.1.0"}
         
-        if self.auth_type == "bearer" and self.auth_token:
+        if self.auth_type in ("bearer", "oauth") and self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         elif self.auth_type == "basic" and self.auth_token:
             headers["Authorization"] = f"Basic {self.auth_token}"
@@ -77,10 +90,171 @@ class Executor:
             method: HTTP method (GET, POST, etc.)
             path: API endpoint path
             payload: Request body/parameters
+            files: Files to upload (for multipart/form-data)
+            graphql_query: Raw GraphQL query string (will be wrapped in JSON)
             headers: Additional headers
             
         Returns:
             Response data including status, body, and timing
         """
-        # TODO: Implement attack execution with rate limiting
-        raise NotImplementedError("Attack execution not yet implemented")
+        if not self._client:
+            return {
+                "status_code": 0,
+                "headers": {},
+                "body": "",
+                "elapsed_ms": 0.0,
+                "error": "Client not initialized. Use 'async with Executor(...)' pattern.",
+            }
+        
+        # Apply rate limiting
+        await self._apply_rate_limit()
+        
+        # Merge additional headers
+        request_headers = self._client.headers.copy()
+        if headers:
+            request_headers.update(headers)
+        
+        # Prepare request parameters
+        method = method.upper()
+        start_time = time.perf_counter()
+        
+        try:
+            # Execute request based on method
+            if method == "GET":
+                response = await self._client.get(
+                    path,
+                    params=payload,
+                    headers=request_headers,
+                )
+            elif method in ("POST", "PUT", "PATCH"):
+                # Handle GraphQL
+                if graphql_query:
+                    # GraphQL is typically POST-only; warn if a different method was requested
+                    if method != "POST":
+                        logger.debug(
+                            "GraphQL queries are typically sent via POST, "
+                            "but '%s' was requested for %s", method, path
+                        )
+                    # GraphQL usually expects {"query": "...", "variables": {...}}
+                    # payload can be used for variables if provided
+                    json_body = {"query": graphql_query}
+                    if payload:
+                        json_body["variables"] = payload
+                    
+                    response = await self._client.request(
+                        method,
+                        path,
+                        json=json_body,
+                        headers=request_headers,
+                    )
+                # Handle multipart/form-data vs json
+                elif files:
+                    # If files are present, payload usually goes into 'data' form fields
+                    # httpx handles boundary and content-type for files automatically
+                    response = await self._client.request(
+                        method,
+                        path,
+                        data=payload, # Form fields
+                        files=files,  # File uploads
+                        headers=request_headers,
+                    )
+                else:
+                    response = await self._client.request(
+                        method,
+                        path,
+                        json=payload,
+                        headers=request_headers,
+                    )
+            elif method == "DELETE":
+                response = await self._client.delete(
+                    path,
+                    headers=request_headers,
+                )
+            else:
+                return {
+                    "status_code": 0,
+                    "headers": {},
+                    "body": "",
+                    "elapsed_ms": 0.0,
+                    "error": f"Unsupported HTTP method: {method}",
+                }
+            
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            
+            return {
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+                "body": response.text,
+                "elapsed_ms": elapsed_ms,
+                "error": None,
+            }
+            
+        except httpx.TimeoutException as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            error_msg = f"Request timeout: {str(e)}"
+            logger.warning(f"Timeout executing {method} {path}: {e}")
+            return {
+                "status_code": 0,
+                "headers": {},
+                "body": "",
+                "elapsed_ms": elapsed_ms,
+                "error": error_msg,
+            }
+            
+        # ... (rest of exception handling remains similar, ensuring closing indent)
+        except httpx.ConnectError as e:
+             elapsed_ms = (time.perf_counter() - start_time) * 1000
+             error_msg = f"Connection error: {str(e)}"
+             logger.warning(f"Connection error executing {method} {path}: {e}")
+             return {
+                 "status_code": 0,
+                 "headers": {},
+                 "body": "",
+                 "elapsed_ms": elapsed_ms,
+                 "error": error_msg,
+             }
+             
+        except httpx.HTTPError as e:
+             elapsed_ms = (time.perf_counter() - start_time) * 1000
+             error_msg = f"HTTP error: {str(e)}"
+             logger.warning(f"HTTP error executing {method} {path}: {e}")
+             return {
+                 "status_code": 0,
+                 "headers": {},
+                 "body": "",
+                 "elapsed_ms": elapsed_ms,
+                 "error": error_msg,
+             }
+             
+        except Exception as e:
+             elapsed_ms = (time.perf_counter() - start_time) * 1000
+             error_msg = f"Unexpected error: {str(e)}"
+             logger.warning(f"Unexpected error executing {method} {path}: {e}")
+             return {
+                 "status_code": 0,
+                 "headers": {},
+                 "body": "",
+                 "elapsed_ms": elapsed_ms,
+                 "error": error_msg,
+             }
+    
+    async def _apply_rate_limit(self) -> None:
+        """Apply rate limiting using token bucket algorithm."""
+        if not self._rate_limiter:
+            return
+        
+        # Acquire semaphore token
+        async with self._rate_limiter:
+            # Calculate time since last request
+            current_time = time.perf_counter()
+            time_since_last = current_time - self._last_request_time
+            
+            # Minimum time between requests (in seconds)
+            min_interval = 1.0 / self.rate_limit if self.rate_limit > 0 else 0
+            
+            # Sleep if we're going too fast
+            if time_since_last < min_interval:
+                await asyncio.sleep(min_interval - time_since_last)
+            
+            # Update last request time
+            self._last_request_time = time.perf_counter()

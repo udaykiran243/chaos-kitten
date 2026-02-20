@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Kitten | AI-Powered API Security Scanning</title>
+    <meta name="description" content="An agentic AI security testing tool that intelligently finds vulnerabilities in APIs using OpenAPI parsing and generative AI.">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="noise-overlay"></div>
+    <div class="glow-bg"></div>
+
+    <header class="navbar container">
+        <a href="#" class="logo">
+            <img src="assets/logo.png" alt="Chaos Kitten Logo">
+            <span>Chaos Kitten</span>
+        </a>
+        <nav>
+            <a href="#features" class="nav-link">Features</a>
+            <a href="#quickstart" class="nav-link">Quickstart</a>
+            <a href="https://github.com/mdhaarishussain/chaos-kitten/blob/main/docs/getting_started.md" target="_blank" rel="noopener noreferrer" class="nav-link">Docs</a>
+            <a href="https://github.com/mdhaarishussain/chaos-kitten" target="_blank" class="btn btn-secondary">
+                <i class="fab fa-github"></i> GitHub
+            </a>
+        </nav>
+        <button class="mobile-menu-btn">
+            <i class="fas fa-bars"></i>
+        </button>
+    </header>
+
+    <main>
+        <section class="hero container">
+            <div class="hero-content">
+                <div class="badge">
+                    <span class="pulse"></span> v0.1.0 Alpha Release
+                </div>
+                <h1 class="glitch-wrapper">
+                    Unleash <span class="text-gradient glitch" data-text="Chaos">Chaos</span> on your <br>
+                    API Vulnerabilities
+                </h1>
+                <p class="hero-subtitle">
+                    The agentic AI security tool that parses OpenAPI specs, plans intelligent attacks, 
+                    and hunts down security flaws before hackers do.
+                </p>
+                <div class="hero-actions">
+                    <a href="#quickstart" class="btn btn-primary">
+                        <i class="fas fa-terminal"></i> Start Hacking
+                    </a>
+                    <a href="https://github.com/mdhaarishussain/chaos-kitten" class="btn btn-outline">
+                        <i class="fas fa-star"></i> Star Repository
+                    </a>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="terminal-window">
+                    <div class="terminal-header">
+                        <span class="dot red"></span>
+                        <span class="dot yellow"></span>
+                        <span class="dot green"></span>
+                        <div class="terminal-title">chaos-kitten-cli</div>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="typing-line">
+                            <span class="prompt">$</span> 
+                            <span class="typewriter">chaos-kitten scan --target http://api.local</span>
+                        </div>
+                        <div class="output delay-1">
+                            <span class="info">INFO</span> 🧠 Brain initializing...
+                        </div>
+                        <div class="output delay-2">
+                            <span class="info">INFO</span> 📋 Parsing OpenAPI spec... 12 endpoints found.
+                        </div>
+                        <div class="output delay-3">
+                            <span class="warn">WARN</span> 🧠 Planning attack strategies...
+                        </div>
+                        <div class="output delay-4">
+                            <span class="success">VULN</span> 🚨 Reflected XSS found at GET /users
+                        </div>
+                        <div class="output delay-5">
+                            <span class="success">VULN</span> 🚨 SQL Injection found at POST /login
+                        </div>
+                        <div class="output delay-6">
+                            <span class="info">INFO</span> 📊 Report generated: reports/audit.html
+                        </div>
+                        <div class="cursor-line">
+                            <span class="prompt">$</span> <span class="cursor">_</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="features" class="features">
+            <div class="container">
+                <h2 class="section-title">Why <span class="text-gradient">Chaos Kitten?</span></h2>
+            </div>
+            
+            <div class="feature-scroller">
+                <div class="feature-track">
+                    <!-- Original Cards -->
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-cyan">
+                            <i class="fas fa-file-code"></i>
+                        </div>
+                        <h3>OpenAPI Parsing</h3>
+                        <p>
+                            Forget manual configuration. Chaos Kitten natively parses your 
+                            <strong>Swagger/OpenAPI</strong> specs to map every endpoint.
+                        </p>
+                    </div>
+
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-magenta">
+                            <i class="fas fa-brain"></i>
+                        </div>
+                        <h3>AI Attack Planning</h3>
+                        <p>
+                            Powered by LLMs, the brain understands business logic constraints and generates 
+                            <strong>context-aware</strong> payloads.
+                        </p>
+                    </div>
+
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-purple">
+                            <i class="fas fa-chart-pie"></i>
+                        </div>
+                        <h3>Automated Reporting</h3>
+                        <p>
+                            Get instant, actionable insights. Reports are generated in 
+                            <strong>HTML, JSON, and SARIF</strong> formats.
+                        </p>
+                    </div>
+
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-yellow">
+                            <i class="fas fa-mask"></i>
+                        </div>
+                        <h3>XSS Validation</h3>
+                        <p>
+                            Validates Reflected XSS attacks using a headless browser to ensure 
+                            vulnerabilities are <strong>exploitable</strong>.
+                        </p>
+                    </div>
+
+                    <!-- Duplicated Cards for Infinite Scroll -->
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-cyan">
+                            <i class="fas fa-file-code"></i>
+                        </div>
+                        <h3>OpenAPI Parsing</h3>
+                        <p>
+                            Forget manual configuration. Chaos Kitten natively parses your 
+                            <strong>Swagger/OpenAPI</strong> specs to map every endpoint.
+                        </p>
+                    </div>
+
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-magenta">
+                            <i class="fas fa-brain"></i>
+                        </div>
+                        <h3>AI Attack Planning</h3>
+                        <p>
+                            Powered by LLMs, the brain understands business logic constraints and generates 
+                            <strong>context-aware</strong> payloads.
+                        </p>
+                    </div>
+
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-purple">
+                            <i class="fas fa-chart-pie"></i>
+                        </div>
+                        <h3>Automated Reporting</h3>
+                        <p>
+                            Get instant, actionable insights. Reports are generated in 
+                            <strong>HTML, JSON, and SARIF</strong> formats.
+                        </p>
+                    </div>
+
+                    <div class="feature-card glass-panel">
+                        <div class="card-glow"></div>
+                        <div class="icon-box icon-yellow">
+                            <i class="fas fa-mask"></i>
+                        </div>
+                        <h3>XSS Validation</h3>
+                        <p>
+                            Validates Reflected XSS attacks using a headless browser to ensure 
+                            vulnerabilities are <strong>exploitable</strong>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="quickstart" class="quickstart">
+            <div class="container">
+                <div class="quickstart-content">
+                    <h2 class="section-title">Ready to pounce?</h2>
+                    <p>Install Chaos Kitten via pip and start your first scan in seconds.</p>
+                    
+                    <div class="code-block">
+                        <button class="copy-btn">
+                            <i class="far fa-copy"></i>
+                        </button>
+                        <pre><code id="install-code"># Install from PyPI (Coming soon)
+git clone https://github.com/mdhaarishussain/chaos-kitten.git
+cd chaos-kitten
+pip install -e .
+
+# Configure your environment
+export ANTHROPIC_API_KEY=your_key_here
+
+# Run a scan
+chaos-kitten scan --target http://localhost:5000 --spec openapi.json</code></pre>
+                    </div>
+
+                    <div class="btn-group">
+                        <a href="https://github.com/mdhaarishussain/chaos-kitten/blob/main/README.md" target="_blank" class="btn btn-primary">Read Full Documentation</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container footer-content">
+            <div class="footer-left">
+                <div class="logo">
+                    <img src="assets/logo.png" alt="Chaos Kitten Logo">
+                    <span>Chaos Kitten</span>
+                </div>
+                <p>An open-source AI security tool for the modern web.</p>
+            </div>
+            <div class="footer-links">
+                <a href="#features">Features</a>
+                <a href="https://github.com/mdhaarishussain/chaos-kitten/blob/main/docs/contributing_guide.md" target="_blank" rel="noopener noreferrer">Contributing</a>
+                <a href="https://github.com/mdhaarishussain/chaos-kitten/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
+            </div>
+            <div class="footer-social">
+                <a href="https://github.com/mdhaarishussain/chaos-kitten"><i class="fab fa-github"></i></a>
+                <a href="#"><i class="fab fa-discord"></i></a>
+                <a href="#"><i class="fab fa-twitter"></i></a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Apertre Open Source Program. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

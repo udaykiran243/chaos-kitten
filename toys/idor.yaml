@@ -1,0 +1,220 @@
+# IDOR - Insecure Direct Object Reference Attack Profile
+# This file defines payloads for testing IDOR vulnerabilities
+
+name: "IDOR - Insecure Direct Object Reference"
+category: "access-control"
+severity: "high"
+description: "Tests for unauthorized access to resources via ID manipulation. IDOR vulnerabilities occur when applications expose direct references to internal objects without proper authorization checks."
+
+# Fields commonly vulnerable to IDOR
+target_fields:
+  - "id"
+  - "user_id"
+  - "userId"
+  - "account_id"
+  - "accountId"
+  - "order_id"
+  - "orderId"
+  - "document_id"
+  - "documentId"
+  - "file_id"
+  - "fileId"
+  - "profile_id"
+  - "profileId"
+  - "resource_id"
+  - "resourceId"
+  - "ticket_id"
+  - "invoice_id"
+  - "transaction_id"
+  - "customer_id"
+  - "reference"
+  - "ref"
+  - "key"
+  - "uid"
+
+# Attack payloads to test
+payloads:
+  # Sequential numeric IDs (low values)
+  - "1"
+  - "2"
+  - "3"
+  - "4"
+  - "5"
+  - "10"
+  - "100"
+  
+  # Common high-value IDs
+  - "999"
+  - "1000"
+  - "9999"
+  - "10000"
+  - "99999"
+  
+  # Edge cases - zero and negative
+  - "0"
+  - "-1"
+  - "-999"
+  - "-9999"
+  
+  # Common privileged user IDs
+  - "admin"
+  - "root"
+  - "administrator"
+  - "system"
+  - "superuser"
+  
+  # UUID manipulation patterns (common patterns)
+  - "00000000-0000-0000-0000-000000000000"
+  - "00000000-0000-0000-0000-000000000001"
+  - "11111111-1111-1111-1111-111111111111"
+  - "ffffffff-ffff-ffff-ffff-ffffffffffff"
+  
+  # Incremental manipulation (if current ID is known)
+  - "{current_id + 1}"
+  - "{current_id - 1}"
+  - "{current_id + 10}"
+  - "{current_id - 10}"
+  
+  # Special characters and encodings
+  - "../1"
+  - "..%2F1"
+  - "%2e%2e%2f1"
+  - "1%00"
+  - "1.0"
+  - "1e0"
+  - "0x1"
+  
+  # Array/Object injection attempts
+  - "[1]"
+  - "[\"1\"]"
+  - "{\"id\":1}"
+  - "1,2,3"
+  
+  # SQL-based ID manipulation
+  - "1 OR 1=1"
+  - "1' OR '1'='1"
+  - "1) OR (1=1"
+  
+  # Boolean values (sometimes accepted)
+  - "true"
+  - "false"
+  - "null"
+  
+  # Extremely large numbers
+  - "999999999"
+  - "2147483647"  # Max 32-bit integer
+  - "9223372036854775807"  # Max 64-bit integer
+
+# Indicators that suggest successful IDOR exploitation
+success_indicators:
+  response_contains:
+    - "unauthorized user data"
+    - "different user profile"
+    - "access granted"
+    - "user found"
+    - "record found"
+  status_codes:
+    - 200  # Successful access when it should be 403/401
+    - 301  # Redirect to valid resource
+    - 302  # Redirect to valid resource
+  response_differs_from:
+    - "original_request"  # Response content is different from authorized request
+  unexpected_data:
+    - "email addresses that don't belong to current user"
+    - "names that don't match current user"
+    - "sensitive data from other accounts"
+
+# How to fix this vulnerability
+remediation: |
+  Implement proper authorization checks for all resource access requests.
+  
+  Example (Python with Flask):
+  
+  # ❌ BAD - Direct object reference without authorization
+  @app.route('/api/order/<order_id>')
+  def get_order(order_id):
+      order = Order.query.get(order_id)
+      return jsonify(order.to_dict())
+  
+  # ✅ GOOD - Verify user ownership before access
+  @app.route('/api/order/<order_id>')
+  @login_required
+  def get_order(order_id):
+      order = Order.query.get(order_id)
+      if not order:
+          abort(404)
+      if order.user_id != current_user.id and not current_user.is_admin:
+          abort(403)  # Forbidden
+      return jsonify(order.to_dict())
+  
+  Example (Node.js with Express):
+  
+  // ❌ BAD - No authorization check
+  app.get('/api/documents/:id', async (req, res) => {
+    const doc = await Document.findById(req.params.id);
+    res.json(doc);
+  });
+  
+  // ✅ GOOD - Check ownership
+  app.get('/api/documents/:id', authenticate, async (req, res) => {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Not found' });
+    if (doc.ownerId !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    res.json(doc);
+  });
+  
+  Best Practices:
+  - Use indirect reference maps (session-specific mapping)
+  - Implement role-based access control (RBAC)
+  - Use UUIDs instead of sequential IDs (makes guessing harder but doesn't prevent IDOR)
+  - Always verify ownership/permissions on the server-side
+  - Log and monitor unauthorized access attempts
+  - Use framework-level authorization (e.g., Django permissions, Spring Security)
+  - Apply principle of least privilege
+  - Implement rate limiting to prevent automated enumeration
+  
+  Example (Indirect Reference Map):
+  
+  # Store mapping in user session
+  session['order_refs'] = {
+    'ref1': 12345,  # Maps user-specific reference to actual order ID
+    'ref2': 12367,
+    'ref3': 12389
+  }
+  
+  # Use indirect reference in URL
+  @app.route('/api/order/<ref>')
+  def get_order(ref):
+      actual_id = session['order_refs'].get(ref)
+      if not actual_id:
+          abort(404)
+      order = Order.query.get(actual_id)
+      return jsonify(order.to_dict())
+
+references:
+  - "https://owasp.org/www-community/attacks/Insecure_Direct_Object_Reference"
+  - "https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html"
+  - "https://portswigger.net/web-security/access-control/idor"
+  - "https://cwe.mitre.org/data/definitions/639.html"
+
+# Testing methodology
+testing_methodology: |
+  1. Identify all endpoints that accept ID parameters
+  2. Note your own legitimate resource IDs
+  3. Attempt to access resources with modified IDs:
+     - Sequential IDs (increment/decrement by 1, 10, 100)
+     - Common IDs (1, 2, admin, root)
+     - Edge cases (0, -1, very large numbers)
+  4. Compare responses:
+     - Check if you receive data that doesn't belong to you
+     - Look for different response structures/content
+     - Monitor for successful status codes (200) when expecting 403/401
+  5. Test in different contexts:
+     - URL parameters (/user/123)
+     - POST body parameters
+     - JSON request bodies
+     - API endpoints
+     - AJAX requests
+  6. Document findings with proof-of-concept requests
