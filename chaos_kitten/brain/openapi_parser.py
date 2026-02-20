@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """OpenAPI/Swagger specification parser.
 
 This module provides the `OpenAPIParser` class, which parses OpenAPI 3.x and 

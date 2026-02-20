@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Attack Planner - Uses Chain-of-Thought reasoning to plan attacks."""
 
 from typing import Any

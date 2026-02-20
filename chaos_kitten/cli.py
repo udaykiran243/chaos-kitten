@@ -121,6 +121,18 @@ def scan(
         "--demo",
         help="Run scan against the demo vulnerable API",
     ),
+    chaos: bool = typer.Option(
+        False,
+        "--chaos",
+        help="Enable chaos mode for negative testing with random invalid inputs",
+    ),
+    chaos_level: int = typer.Option(
+        3,
+        "--chaos-level",
+        help="Chaos intensity from 1 (gentle) to 5 (maximum carnage)",
+        min=1,
+        max=5,
+    ),
 ):
     """Scan an API for security vulnerabilities."""
     console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten", border_style="magenta"))
@@ -141,18 +153,43 @@ def scan(
         console.print("I need an [bold]ANTHROPIC_API_KEY[/bold] or [bold]OPENAI_API_KEY[/bold] to plan my mischief.")
         console.print("[dim]Please set one in your environment or .env file.[/dim]")
         
-        if not demo:
+        if not demo and not chaos:
             raise typer.Exit(code=1)
         else:
-            console.print("[yellow]⚠️  Proceeding anyway since we are in demo mode...[/yellow]")
+            console.print("[yellow]⚠️  Proceeding anyway...[/yellow]")
     
-    # TODO: Implement actual scanning logic
-    console.print("[yellow]⚠️  Scanning logic is still under construction![/yellow]")
-    console.print(f"I was supposed to scan [bold]{target or 'the API'}[/bold]...")
-    console.print(f"And save the [bold]{format}[/bold] report to [bold]{output}[/bold].")
+    try:
+        from chaos_kitten.brain.orchestrator import Orchestrator
+        import asyncio
+        
+        # Load config or use defaults
+        try:
+            from chaos_kitten.utils.config import Config
+            config_obj = Config(config)
+            cfg = config_obj.load()
+        except Exception:
+            cfg = {"target": {}, "reporting": {}}
+        
+        # Override with CLI args
+        if target:
+            cfg.setdefault("target", {})["base_url"] = target
+        if spec:
+            cfg.setdefault("target", {})["openapi_spec"] = spec
+        if output:
+            cfg.setdefault("reporting", {})["output_path"] = output
+            
+        orchestrator = Orchestrator(cfg, chaos=chaos, chaos_level=chaos_level)
+        results = asyncio.run(orchestrator.run())
+        
+        # Generate report (mock for now)
+        console.print(f"\n📝 Generating {format} report in {output}...")
+        
+    except Exception as e:
+        console.print(f"[bold red]💥 Error:[/bold red] {str(e)}")
+        raise typer.Exit(code=1)
+    
     console.print()
-    console.print("🐾 [italic]But for now, I'm just stretching my paws![/italic]")
-    console.print("[dim]The full agentic brain will be integrated soon.[/dim]")
+    console.print("🐾 [italic]Chaos Kitten is done![/italic]")
     console.print()
 
 @app.command()
