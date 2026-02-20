@@ -45,10 +45,11 @@ class AgentState(TypedDict):
     recon_results: Dict[str, Any]
 
 
-async def run_recon(state: AgentState, config: Dict[str, Any]) -> Dict[str, Any]:
+async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
+    # Renamed to app_config to avoid LangGraph collision
     console.print("[bold blue]🔍 Starting Reconnaissance Phase...[/bold blue]")
     try:
-        engine = ReconEngine(config)
+        engine = ReconEngine(app_config)
         
         # Run recon engine in an executor to avoid blocking the async loop
         loop = asyncio.get_running_loop()
@@ -204,7 +205,7 @@ class Orchestrator:
         from langgraph.graph import END, START, StateGraph
         workflow = StateGraph(AgentState)
 
-        workflow.add_node("recon", partial(run_recon, config=self.config))
+        workflow.add_node("recon", partial(run_recon, app_config=self.config))
         workflow.add_node("parse", parse_openapi)
         workflow.add_node("plan", plan_attacks)
         workflow.add_node(

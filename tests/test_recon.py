@@ -93,7 +93,10 @@ class TestReconEngine(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.headers = {"Server": "nginx", "X-Powered-By": "PHP/7.4"}
         mock_response.text = '<html><body>Content="WordPress"</body></html>'
-        mock_response.cookies = [MagicMock(name="PHPSESSID")]
+        cookie = MagicMock()
+        cookie.name = "PHPSESSID"
+        # Ensure name attribute is set on mock object
+        mock_response.cookies = [cookie]
         
         mock_client.get.return_value = mock_response
         
@@ -102,6 +105,7 @@ class TestReconEngine(unittest.TestCase):
         self.assertEqual(tech.get("server"), "nginx")
         self.assertEqual(tech.get("powered_by"), "PHP/7.4")
         self.assertIn("WordPress", tech.get("cms", []))
+        self.assertIn("PHP", tech.get("frameworks", []))
 
     @patch("chaos_kitten.brain.recon.ReconEngine.enumerate_subdomains")
     @patch("chaos_kitten.brain.recon.ReconEngine.scan_ports")
