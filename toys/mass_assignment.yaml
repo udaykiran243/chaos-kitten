@@ -9,6 +9,9 @@ description: "Tests for mass assignment vulnerabilities where internal fields ar
 
 # Fields commonly vulnerable to mass assignment
 target_fields:
+  - "json_body"
+  - "form_data"
+  - "xml_body"
   - "role"
   - "is_admin"
   - "admin"
@@ -77,6 +80,20 @@ payloads:
   - '{"created_by": "admin"}'
   - '{"organization_id": 1}'
 
+  # --- Nested Object Injection ---
+  - '{"user": {"is_admin": true}}'
+  - '{"user": {"role": "admin"}}'
+  - '{"profile": {"permissions": {"admin": true}}}'
+  - '{"user.permissions.admin": true}'
+  - '{"attributes": {"role": "superuser"}}'
+
+  # --- Naming Variants ---
+  - '{"isStaff": true}'
+  - '{"is_staff": true}'
+  - '{"userRole": "admin"}'
+  - '{"accountBalance": 1000000}'
+  - '{"isVerified": true}'
+
   # --- HTTP Parameter Pollution (Query/Form) ---
   # These are conceptual representations; the engine should apply them as repeated params
   - "id=1&id=2"  # Testing array injection or override
@@ -113,6 +130,10 @@ success_indicators:
     # General
     - "successfully updated"
     - "200 OK"
+
+  behavior_change:
+    - "access to administrative panels granted"
+    - "unauthorized price modification reflected"
     
   status_codes:
     - 200
