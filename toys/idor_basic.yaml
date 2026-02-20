@@ -1,0 +1,379 @@
+# IDOR - Insecure Direct Object Reference (Basic) Attack Profile
+# This file defines basic payloads for testing IDOR vulnerabilities focused on
+# sequential ID enumeration, GUID manipulation, and privilege escalation
+
+name: "IDOR - Basic"
+category: "access-control"
+severity: "high"
+description: "Tests for Insecure Direct Object Reference (IDOR) vulnerabilities where APIs expose direct references to internal objects without proper authorization checks, allowing unauthorized access to other users' resources."
+
+# Fields commonly vulnerable to IDOR attacks
+target_fields:
+  - "id"
+  - "user_id"
+  - "userId"
+  - "account_id"
+  - "accountId"
+  - "profile_id"
+  - "order_id"
+  - "document_id"
+  - "file_id"
+  - "resource_id"
+  - "ref"
+  - "uid"
+  - "email"
+  - "username"
+  - "object_id"
+
+# Attack payloads organized by IDOR category
+payloads:
+  # Category 1: Sequential ID Enumeration (Horizontal Privilege Escalation)
+  - name: "sequential_user_1"
+    description: "Access user ID 1"
+    endpoint_pattern: "/users/1"
+    value: "1"
+    attack_type: "horizontal_escalation"
+    
+  - name: "sequential_user_2"
+    description: "Access user ID 2"
+    endpoint_pattern: "/users/2"
+    value: "2"
+    attack_type: "horizontal_escalation"
+    
+  - name: "sequential_user_10"
+    description: "Access user ID 10"
+    endpoint_pattern: "/users/10"
+    value: "10"
+    attack_type: "horizontal_escalation"
+    
+  - name: "sequential_user_100"
+    description: "Access user ID 100"
+    endpoint_pattern: "/users/100"
+    value: "100"
+    attack_type: "horizontal_escalation"
+    
+  - name: "sequential_order_1001"
+    description: "Access order ID 1001"
+    endpoint_pattern: "/orders/1001"
+    value: "1001"
+    attack_type: "horizontal_escalation"
+    
+  - name: "sequential_document_999"
+    description: "Access document ID 999"
+    endpoint_pattern: "/documents/999"
+    value: "999"
+    attack_type: "horizontal_escalation"
+  
+  # Category 2: UUID/GUID-based IDOR (Predictable UUID v1 timestamps)
+  - name: "uuid_nil"
+    description: "Nil UUID (often system/admin resource)"
+    value: "00000000-0000-0000-0000-000000000000"
+    attack_type: "uuid_manipulation"
+    
+  - name: "uuid_sequential_1"
+    description: "Sequential UUID variant 1 (test accounts)"
+    value: "00000000-0000-0000-0000-000000000001"
+    attack_type: "uuid_manipulation"
+    
+  - name: "uuid_sequential_2"
+    description: "Sequential UUID variant 2"
+    value: "00000000-0000-0000-0000-000000000002"
+    attack_type: "uuid_manipulation"
+    
+  - name: "uuid_v1_predictable"
+    description: "UUID v1 with predictable timestamp (time-based)"
+    value: "a8098c1a-f86e-11da-bd1a-00112444be1e"
+    attack_type: "uuid_manipulation"
+    
+  - name: "uuid_common_test"
+    description: "Common test UUID pattern"
+    value: "123e4567-e89b-12d3-a456-426614174000"
+    attack_type: "uuid_manipulation"
+  
+  # Category 3: Vertical Privilege Escalation (Admin access)
+  - name: "admin_user_id_0"
+    description: "Access admin account via ID 0 (often system user)"
+    value: "0"
+    attack_type: "vertical_escalation"
+    
+  - name: "admin_user_id_negative"
+    description: "Access admin account via negative ID"
+    value: "-1"
+    attack_type: "vertical_escalation"
+    
+  - name: "admin_user_string"
+    description: "Access admin account via string identifier"
+    value: "admin"
+    attack_type: "vertical_escalation"
+    
+  - name: "root_user_string"
+    description: "Access root account via string identifier"
+    value: "root"
+    attack_type: "vertical_escalation"
+  
+  # Category 4: Nested Object References (Indirect IDOR)
+  - name: "email_reference"
+    description: "Access user by email (indirect reference)"
+    field: "email"
+    value: "admin@example.com"
+    attack_type: "indirect_idor"
+    
+  - name: "username_reference"
+    description: "Access user by username (indirect reference)"
+    field: "username"
+    value: "administrator"
+    attack_type: "indirect_idor"
+    
+  - name: "nested_resource_parent"
+    description: "Access nested resource via parent object manipulation"
+    endpoint_pattern: "/users/1/orders/123"
+    value: "1"
+    attack_type: "indirect_idor"
+    
+  - name: "nested_resource_child"
+    description: "Access child resource with mismatched parent"
+    endpoint_pattern: "/users/{current_user_id}/orders/999"
+    value: "999"
+    attack_type: "indirect_idor"
+
+# Common test scenarios for IDOR detection
+test_scenarios:
+  - description: "Enumerate user profiles sequentially"
+    method: "GET"
+    endpoint: "/api/users/{id}"
+    test_ids: ["1", "2", "3", "10", "100", "1000"]
+    
+  - description: "Access other users' orders with own token"
+    method: "GET"
+    endpoint: "/api/orders/{id}"
+    test_ids: ["1", "2", "100", "1001"]
+    authorization_required: true
+    
+  - description: "Modify resources belonging to other users"
+    method: "PUT"
+    endpoint: "/api/profiles/{id}"
+    test_ids: ["1", "2", "admin"]
+    authorization_required: true
+    
+  - description: "Delete resources belonging to other users"
+    method: "DELETE"
+    endpoint: "/api/documents/{id}"
+    test_ids: ["1", "10", "100"]
+    authorization_required: true
+
+# Indicators that suggest successful IDOR exploitation
+success_indicators:
+  response_contains:
+    - "different email"
+    - "different username"
+    - "unauthorized user data"
+    - "balance"
+    - "credit_card"
+    - "ssn"
+    - "social_security"
+    - "private"
+    - "confidential"
+  
+  status_codes:
+    - 200  # OK - successful access when should be 403/401
+    - 201  # Created
+    - 204  # No Content (successful deletion)
+  
+  # Detect ID mismatch between request and response
+  id_mismatch:
+    - description: "Response contains different user_id than authenticated user"
+      check: "response.data.user_id != current_user.id"
+    - description: "Response email doesn't match authenticated user"
+      check: "response.data.email != current_user.email"
+    - description: "Response contains 'owner_id' different from requester"
+      check: "response.data.owner_id != current_user.id"
+  
+  absence_of:
+    - "unauthorized"
+    - "forbidden"
+    - "access denied"
+    - "not authorized"
+    - "permission denied"
+    - "401"
+    - "403"
+
+# How to fix IDOR vulnerabilities
+remediation: |
+  🔧 How to Fix IDOR Vulnerabilities (CWE-639):
+
+  1. **Server-Side Authorization Checks**:
+     Always verify that the authenticated user has permission to access the requested resource.
+     
+     ```python
+     # Python (Flask) Example
+     @app.route('/api/orders/<int:order_id>')
+     @login_required
+     def get_order(order_id):
+         order = Order.query.get_or_404(order_id)
+         
+         # ❌ BAD - No authorization check
+         # return jsonify(order)
+         
+         # ✅ GOOD - Verify ownership
+         if order.user_id != current_user.id:
+             abort(403, "You don't have permission to access this order")
+         
+         return jsonify(order)
+     ```
+     
+     ```javascript
+     // Node.js (Express) Example
+     app.get('/api/profiles/:id', authenticate, async (req, res) => {
+       const profile = await Profile.findById(req.params.id);
+       if (!profile) return res.status(404).json({ error: 'Not found' });
+       
+       // ❌ BAD - No authorization check
+       // return res.json(profile);
+       
+       // ✅ GOOD - Check ownership
+       if (profile.userId.toString() !== req.user.id.toString()) {
+         return res.status(403).json({ error: 'Forbidden' });
+       }
+       
+       return res.json(profile);
+     });
+     ```
+
+  2. **Use Indirect Reference Maps**:
+     Map user-specific references to actual object IDs in the session.
+     
+     ```python
+     # Store mapping in session
+     session['accessible_docs'] = {
+         'doc_a': 12345,  # User can only access their own documents
+         'doc_b': 12367,
+         'doc_c': 12389
+     }
+     
+     @app.route('/api/documents/<ref>')
+     def get_document(ref):
+         actual_id = session['accessible_docs'].get(ref)
+         if not actual_id:
+             abort(404)
+         document = Document.query.get(actual_id)
+         return jsonify(document)
+     ```
+
+  3. **Implement Role-Based Access Control (RBAC)**:
+     Define and enforce roles and permissions at the application level.
+     
+     ```python
+     from flask_principal import Permission, RoleNeed
+     
+     admin_permission = Permission(RoleNeed('admin'))
+     
+     @app.route('/api/users/<user_id>')
+     def get_user(user_id):
+         user = User.query.get_or_404(user_id)
+         
+         # Allow if admin or accessing own profile
+         if not (admin_permission.can() or user.id == current_user.id):
+             abort(403)
+         
+         return jsonify(user)
+     ```
+
+  4. **Use UUIDs Instead of Sequential IDs**:
+     While not a complete solution, UUIDs make enumeration harder.
+     
+     ```python
+     import uuid
+     
+     class User(db.Model):
+         # ❌ DISCOURAGED - Sequential ID
+         # id = db.Column(db.Integer, primary_key=True)
+         
+         # ✅ BETTER - UUID (harder to enumerate, but still needs authorization)
+         id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+     ```
+
+  5. **Filter Queries by User Context**:
+     Always scope database queries to the authenticated user.
+     
+     ```python
+     # ❌ BAD - Query without user context
+     order = Order.query.filter_by(id=order_id).first()
+     
+     # ✅ GOOD - Query scoped to current user
+     order = Order.query.filter_by(
+         id=order_id,
+         user_id=current_user.id
+     ).first_or_404()
+     ```
+
+  6. **Implement Rate Limiting**:
+     Prevent automated enumeration attacks.
+     
+     ```python
+     from flask_limiter import Limiter
+     
+     limiter = Limiter(app, key_func=lambda: current_user.id)
+     
+     @app.route('/api/users/<user_id>')
+     @limiter.limit("10 per minute")  # Limit enumeration attempts
+     def get_user(user_id):
+         # ... authorization logic
+     ```
+
+  7. **Log and Monitor Access Attempts**:
+     Track unauthorized access attempts for security monitoring.
+     
+     ```python
+     import logging
+     
+     @app.route('/api/sensitive/<resource_id>')
+     def get_sensitive(resource_id):
+         resource = Resource.query.get_or_404(resource_id)
+         
+         if resource.owner_id != current_user.id:
+             # Log unauthorized access attempt
+             logging.warning(
+                 f"IDOR attempt: User {current_user.id} tried to access "
+                 f"resource {resource_id} owned by {resource.owner_id}"
+             )
+             abort(403)
+         
+         return jsonify(resource)
+     ```
+
+  **Key Principles:**
+  - Never trust client-supplied IDs without authorization
+  - Apply principle of least privilege
+  - Assume all input is malicious
+  - Test authorization logic thoroughly
+  - Use framework-level security features (Django permissions, Spring Security, etc.)
+
+references:
+  - "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/"
+  - "https://cwe.mitre.org/data/definitions/639.html"
+  - "https://portswigger.net/web-security/access-control/idor"
+  - "https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html"
+  - "https://owasp.org/www-community/attacks/Insecure_Direct_Object_Reference"
+
+cwe_mapping:
+  - "CWE-639: Authorization Bypass Through User-Controlled Key"
+  - "CWE-285: Improper Authorization"
+  - "CWE-284: Improper Access Control"
+  - "CWE-862: Missing Authorization"
+
+owasp_api_mapping:
+  - "API1:2023 Broken Object Level Authorization"
+  - "API3:2023 Broken Object Property Level Authorization"
+
+# Detection confidence levels
+confidence_levels:
+  high:
+    - "HTTP 200 response with different user's data"
+    - "user_id in response differs from authenticated user"
+    - "Successful modification/deletion of another user's resource"
+  medium:
+    - "HTTP 200 on resource that should be forbidden"
+    - "Response structure differs from expected (contains extra fields)"
+  low:
+    - "HTTP 302 redirect to valid resource"
+    - "Timing differences in responses"
