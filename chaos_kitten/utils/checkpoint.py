@@ -23,15 +23,22 @@ def calculate_config_hash(config: Dict[str, Any]) -> str:
     return hashlib.sha256(config_str.encode()).hexdigest()
 
 def save_checkpoint(data: CheckpointData, path: Union[str, Path]) -> None:
-    """Save checkpoint data to a file.
+    """Save checkpoint data to a file atomically.
     
     Args:
         data: The checkpoint data to save
         path: Path to the checkpoint file
     """
     path = Path(path)
-    with open(path, "w") as f:
-        json.dump(asdict(data), f, indent=2)
+    temp_path = path.with_suffix(".tmp")
+    try:
+        with open(temp_path, "w") as f:
+            json.dump(asdict(data), f, indent=2)
+        temp_path.replace(path)
+    except Exception:
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
 
 def load_checkpoint(path: Union[str, Path]) -> Optional[CheckpointData]:
     """Load checkpoint data from a file.
