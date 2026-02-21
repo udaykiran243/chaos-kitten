@@ -150,7 +150,7 @@ def plan_attacks(state: AgentState) -> Dict[str, Any]:
     if suggested_profiles:
         all_attacks = [
             a for a in all_attacks 
-            if a.get("profile") in suggested_profiles
+            if a.get("profile_name") in suggested_profiles
         ]
     
     return {"planned_attacks": all_attacks}

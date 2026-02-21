@@ -616,14 +616,14 @@ class AttackPlanner:
 
 # Default profile list for fallback when toys directory is not accessible
 default_profiles = [
-    "sql_injection_basic",
-    "xss_reflected",
-    "idor_basic",
-    "bola",
-    "command_injection",
-    "path_traversal",
-    "xxe",
-    "ssrf"
+    "SQL Injection - Basic",
+    "XSS - Reflected",
+    "IDOR - Basic",
+    "BOLA - Broken Object Level Authorization",
+    "Command Injection",
+    "Path Traversal",
+    "XXE Injection",
+    "SSRF"
 ]
 
 # Natural Language Attack Targeting Prompt
@@ -756,7 +756,7 @@ class NaturalLanguagePlanner:
 
             return result
 
-        except Exception as exc:
+        except Exception:
             logger.exception("[GOAL] Natural language planning failed")
             # Fallback: return all endpoints with no filtering
             return {
@@ -769,7 +769,7 @@ class NaturalLanguagePlanner:
                     }
                     for ep in self.endpoints
                 ],
-                "profiles": ["sql_injection_basic", "xss_reflected", "idor_basic"],
+                "profiles": ["SQL Injection - Basic", "XSS - Reflected", "IDOR - Basic"],
                 "focus": "Standard security testing (LLM planning unavailable)",
                 "reasoning": "Fallback: LLM planning failed"
             }
@@ -784,10 +784,20 @@ class NaturalLanguagePlanner:
             profile_files = glob.glob(_os.path.join(toys_dir, "*.yaml"))
             if not profile_files:
                 return default_profiles
-            return [
-                _os.path.basename(f).replace(".yaml", "")
-                for f in profile_files
-            ]
+            
+            # Load YAML name fields to match attack dict profile_name values
+            profile_names = []
+            for profile_file in profile_files:
+                try:
+                    with open(profile_file, 'r') as f:
+                        profile_data = yaml.safe_load(f)
+                        name = profile_data.get("name", _os.path.basename(profile_file).replace(".yaml", ""))
+                        profile_names.append(name)
+                except Exception:
+                    # Fallback to file-stem if YAML read fails
+                    profile_names.append(_os.path.basename(profile_file).replace(".yaml", ""))
+            
+            return profile_names if profile_names else default_profiles
         except Exception:
             return default_profiles
 
