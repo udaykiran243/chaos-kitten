@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from functools import partial
-from typing import Any, Dict, List, Literal, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 try:
     from langgraph.graph import END, START, StateGraph
@@ -43,7 +43,7 @@ class AgentState(TypedDict):
     results: List[Dict[str, Any]]
     findings: List[Dict[str, Any]]
     recon_results: Dict[str, Any]
-    nl_plan: Dict[str, Any]  # Natural language planning results
+    nl_plan: Optional[Dict[str, Any]]  # Natural language planning results
 
 
 async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -141,7 +141,19 @@ def plan_attacks(state: AgentState) -> Dict[str, Any]:
     # For now, we trust the LLM to deduce context from the endpoint itself.
     
     planner = AttackPlanner([endpoint])
-    return {"planned_attacks": planner.plan_attacks(endpoint)}
+    all_attacks = planner.plan_attacks(endpoint)
+    
+    # Apply NL profile filter if available
+    nl_plan = state.get("nl_plan") or {}
+    suggested_profiles = nl_plan.get("profiles") or []
+    
+    if suggested_profiles:
+        all_attacks = [
+            a for a in all_attacks 
+            if a.get("profile") in suggested_profiles
+        ]
+    
+    return {"planned_attacks": all_attacks}
 
 
 async def execute_and_analyze(state: AgentState, executor: Executor) -> Dict[str, Any]:

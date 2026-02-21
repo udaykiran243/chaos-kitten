@@ -777,7 +777,6 @@ class NaturalLanguagePlanner:
     def _load_available_profiles(self) -> list[str]:
         """Load list of available attack profile names."""
         try:
-            import glob
             import os as _os
             module_dir = _os.path.dirname(_os.path.abspath(__file__))
             package_root = _os.path.dirname(_os.path.dirname(module_dir))
