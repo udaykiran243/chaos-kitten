@@ -320,7 +320,7 @@ class Orchestrator:
                     "severity": "critical",
                     "endpoint": critical.path,
                     "method": critical.method,
-                    "evidence": " | ".join(critical.modifications or []),
+                    "evidence": "\n".join(f"• {mod}" for mod in (critical.modifications or [])),
                     "payload": "N/A (Pre-scan finding)",
                     "proof_of_concept": "Compare security requirements in old vs new OpenAPI spec",
                     "remediation": "Restore authentication requirements before deploying to production.",
