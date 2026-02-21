@@ -23,14 +23,18 @@ from rich.progress import (
 )
 
 from chaos_kitten.brain.attack_planner import AttackPlanner
-
-# Internal Chaos Kitten imports
 from chaos_kitten.brain.openapi_parser import OpenAPIParser
-# from chaos_kitten.brain.response_analyzer import ResponseAnalyzer # Deprecated/Replaced
 from chaos_kitten.paws.analyzer import ResponseAnalyzer
 from chaos_kitten.litterbox.reporter import Reporter
 from chaos_kitten.paws.executor import Executor
 from chaos_kitten.brain.recon import ReconEngine
+from chaos_kitten.utils.checkpoint import (
+    CheckpointData,
+    calculate_config_hash,
+    clean_checkpoint,
+    load_checkpoint,
+    save_checkpoint,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -201,6 +205,7 @@ class Orchestrator:
         config: Dict[str, Any],
         chaos: bool = False,
         chaos_level: int = 3,
+        resume: bool = False,
     ) -> None:
         """Initialize the orchestrator.
         
@@ -208,13 +213,48 @@ class Orchestrator:
             config: Configuration dictionary from chaos-kitten.yaml
             chaos: Whether to enable chaos mode
             chaos_level: Chaos intensity from 1 to 5
+            resume: Whether to resume from a checkpoint
         """
         self.config = config
         self.chaos = chaos
         self.chaos_level = chaos_level
+        self.resume = resume
         
         # State tracking
         self.vulnerabilities: List[Dict[str, Any]] = []
+        self.checkpoint_path = Path(config.get("checkpoint_path", ".chaos-checkpoint.json"))
+
+    def _build_graph(self, executor: Executor) -> StateGraph:
+        """Build the LangGraph workflow."""
+        if not HAS_LANGGRAPH:
+            raise ImportError(
+                "langgraph is not available. Please install it with 'pip install langgraph'."
+            )
+            
+        workflow = StateGraph(AgentState)
+
+        # Nodes
+        workflow.add_node("recon", partial(run_recon, app_config=self.config))
+        workflow.add_node("parse", parse_openapi)
+        workflow.add_node("plan", plan_attacks)
+        workflow.add_node("execute", partial(execute_and_analyze, executor=executor))
+        
+        # Edges
+        workflow.add_edge(START, "recon")
+        workflow.add_edge("recon", "parse")
+        workflow.add_edge("parse", "plan")
+        workflow.add_edge("plan", "execute")
+
+        workflow.add_conditional_edges(
+            "execute",
+            should_continue,
+            {
+                "plan": "plan",
+                "end": END
+            }
+        )
+
+        return workflow.compile()
 
     async def run(self) -> Dict[str, Any]:
         """Run the full security scan.
@@ -223,60 +263,105 @@ class Orchestrator:
             Scan results including vulnerabilities found
         """
         target_url = self.config.get("target", {}).get("base_url")
+        spec_path = self.config.get("target", {}).get("openapi_spec", "")
         if not target_url:
             raise ValueError("Target URL not configured")
             
-        print(f"🚀 Starting scan against {target_url}")
+        console.print(f"🚀 [bold cyan]Starting scan against {target_url}[/bold cyan]")
         
-        findings = []
+        # Initial state
+        initial_state: AgentState = {
+            "spec_path": spec_path,
+            "base_url": target_url,
+            "endpoints": [],
+            "current_endpoint": 0,
+            "planned_attacks": [],
+            "results": [],
+            "findings": [],
+            "recon_results": {}
+        }
+
+        # Handle Resuming
+        if self.resume:
+            checkpoint = load_checkpoint(self.checkpoint_path)
+            if checkpoint:
+                current_hash = calculate_config_hash(self.config)
+                if checkpoint.config_hash == current_hash:
+                    console.print(f"🔄 [bold yellow]Resuming scan from {time.ctime(checkpoint.timestamp)}[/bold yellow]")
+                    # Fill state from checkpoint
+                    # We need to parse first to get full endpoints list for progress total
+                    parser = OpenAPIParser(spec_path)
+                    parser.parse()
+                    endpoints = parser.get_endpoints()
+                    
+                    initial_state["endpoints"] = endpoints
+                    initial_state["findings"] = checkpoint.vulnerabilities
+                    initial_state["current_endpoint"] = len(checkpoint.completed_profiles)
+                    
+                    if initial_state["current_endpoint"] >= len(endpoints):
+                        console.print("✨ [bold green]All endpoints already completed![/bold green]")
+                        # Skip execution but proceed to summary
+                    else:
+                        # Proceed with resumed state
+                        pass
+                else:
+                    console.print("⚠️  [bold red]Config changed! Invalidating stale checkpoint and starting fresh.[/bold red]")
+                    clean_checkpoint(self.checkpoint_path)
+            else:
+                console.print("⚠️  [bold yellow]No valid checkpoint found. Starting fresh.[/bold yellow]")
+
+        final_state = initial_state
+        
         if HAS_LANGGRAPH:
-            # Build the graph
-            workflow = StateGraph(AgentState)
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                console=console,
+            ) as progress:
+                scan_task = progress.add_task("[cyan]Scanning endpoints...", total=None)
 
-            # Nodes
-            workflow.add_node("recon", partial(run_recon, app_config=self.config))
-            workflow.add_node("parse", parse_openapi)
-            workflow.add_node("plan", plan_attacks)
-            
-            # Edges
-            workflow.add_edge(START, "recon")
-            workflow.add_edge("recon", "parse")
-            workflow.add_edge("parse", "plan")
+                async with Executor(target_url) as executor:
+                    app = self._build_graph(executor)
+                    
+                    # If we resumed, we skip 'recon' and 'parse' nodes essentially by starting from 'plan'
+                    # But LangGraph usually starts from START. 
+                    # For simplicity, we'll let it re-run fast nodes or we can use a custom entry point.
+                    # Re-running parse is fast. Recon might be slow.
+                    # If recon was already done, it should be in initial_state too (needs to be saved in checkpoint).
+                    
+                    async for output in app.astream(initial_state):
+                        for node_name, state_update in output.items():
+                            final_state.update(state_update)
+                            
+                            if "endpoints" in state_update:
+                                progress.update(
+                                    scan_task, 
+                                    total=len(final_state["endpoints"]), 
+                                    completed=final_state["current_endpoint"]
+                                )
+                            
+                            if node_name == "execute":
+                                progress.advance(scan_task)
+                                # Save checkpoint
+                                completed_profiles = [
+                                    f"{e['method']} {e['path']}" 
+                                    for e in final_state['endpoints'][:final_state['current_endpoint']]
+                                ]
+                                checkpoint_data = CheckpointData(
+                                    target_url=target_url,
+                                    config_hash=calculate_config_hash(self.config),
+                                    completed_profiles=completed_profiles,
+                                    vulnerabilities=final_state["findings"],
+                                    timestamp=time.time()
+                                )
+                                save_checkpoint(checkpoint_data, self.checkpoint_path)
 
-            async with Executor(self.config) as executor:
-                workflow.add_node("execute", partial(execute_and_analyze, executor=executor))
-                workflow.add_edge("plan", "execute")
-
-                workflow.add_conditional_edges(
-                    "execute",
-                    should_continue,
-                    {
-                        "plan": "plan",
-                        "end": END
-                    }
-                )
-
-                app = workflow.compile()
-                
-                # Initial state
-                initial_state = {
-                    "spec_path": self.config.get("target", {}).get("openapi_spec", ""),
-                    "base_url": target_url,
-                    "endpoints": [],
-                    "current_endpoint": 0,
-                    "planned_attacks": [],
-                    "results": [],
-                    "findings": [],
-                    "recon_results": {}
-                }
-
-                # Run the agent
-                final_state = await app.ainvoke(initial_state)
-                findings = final_state.get("findings", [])
+            findings = final_state.get("findings", [])
         else:
-            print("⚠️  LangGraph not installed. Skipping standard agentic scan.")
-
-        self.vulnerabilities = findings
+            console.print("⚠️  [bold red]LangGraph not installed. Skipping standard agentic scan.[/bold red]")
+            findings = []
 
         # Run chaos mode if enabled
         chaos_findings = []
