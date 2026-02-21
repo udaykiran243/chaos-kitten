@@ -1,6 +1,10 @@
 """Browser Automation - Playwright integration for XSS detection."""
 
-from typing import Any, Dict
+import logging
+import asyncio
+import os
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +38,6 @@ except ImportError:
 class BrowserExecutor:
     """Headless browser Executor for exploit validation.
 
-class BrowserAutomation:
-    """Headless browser for XSS detection.
-    
     Uses Playwright to:
     - Perform browser-based authentication
     - Inject XSS/CSRF payloads
@@ -192,9 +193,10 @@ class BrowserAutomation:
         url: str,
         payload: str,
         input_selector: str = "input",
+        screenshot_dir: str = "reports/screenshots",
     ) -> Dict[str, Any]:
-        """Test for XSS vulnerability.
-        
+        """Test for XSS vulnerability by checking for alert dialogs.
+
         Args:
             url: Page URL to test
             payload: XSS payload to inject

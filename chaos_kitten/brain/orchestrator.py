@@ -1,11 +1,12 @@
+from __future__ import annotations
+
 """The Brain Orchestrator - Main agent logic using LangGraph."""
 
-from typing import Any, Dict, List, TypedDict, Literal
-from pathlib import Path
-import time
 import asyncio
 import json
 import logging
+from functools import partial
+from typing import Any, Dict, List, Literal, TypedDict
 
 try:
     from langgraph.graph import END, START, StateGraph
@@ -132,7 +133,7 @@ async def execute_and_analyze(state: AgentState, executor: Executor) -> Dict[str
                     only_value if isinstance(only_value, str) else str(only_value)
                 )
             else:
-                payload_used = json.dumps(payload_obj, sort_keys=True, default=str)
+                payload_used = json.dumps(payload_obj, sort_keys=True, default=str, ensure_ascii=True)
         else:
             payload_used = str(payload_obj)
         
@@ -191,40 +192,29 @@ class Orchestrator:
     2. Plans attack strategies
     3. Executes attacks
     4. Analyzes results
-    5. Generates reports
+    5. Runs chaos testing (optional)
+    6. Generates reports
     """
     
-    def __init__(self, config: Dict[str, Any], resume: bool = False) -> None:
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        chaos: bool = False,
+        chaos_level: int = 3,
+    ) -> None:
         """Initialize the orchestrator.
         
         Args:
             config: Configuration dictionary from chaos-kitten.yaml
-            resume: Whether to resume from a previous checkpoint
+            chaos: Whether to enable chaos mode
+            chaos_level: Chaos intensity from 1 to 5
         """
         self.config = config
-        self.resume = resume
+        self.chaos = chaos
+        self.chaos_level = chaos_level
         
         # State tracking
-        self.completed_profiles: List[str] = []
         self.vulnerabilities: List[Dict[str, Any]] = []
-        
-        # Import here to avoid circular dependencies
-        from chaos_kitten.utils.checkpoint import load_checkpoint, calculate_config_hash
-        
-        self.checkpoint_path = Path(config.get("checkpoint_path", ".chaos-checkpoint.json"))
-        
-        if self.resume:
-            checkpoint = load_checkpoint(self.checkpoint_path)
-            if checkpoint:
-                current_hash = calculate_config_hash(config)
-                if checkpoint.config_hash == current_hash:
-                    print(f"🔄 Resuming scan from {time.ctime(checkpoint.timestamp)}")
-                    self.completed_profiles = checkpoint.completed_profiles
-                    self.vulnerabilities = checkpoint.vulnerabilities
-                else:
-                    print("⚠️  Config changed! Invalidating checkpoint and starting fresh.")
-            else:
-                print("⚠️  No valid checkpoint found. Starting fresh.")
 
     async def run(self) -> Dict[str, Any]:
         """Run the full security scan.
@@ -232,66 +222,79 @@ class Orchestrator:
         Returns:
             Scan results including vulnerabilities found
         """
-        from chaos_kitten.utils.checkpoint import save_checkpoint, clean_checkpoint, CheckpointData, calculate_config_hash
-        import time
-        from chaos_kitten.paws.executor import Executor
-        
         target_url = self.config.get("target", {}).get("base_url")
         if not target_url:
             raise ValueError("Target URL not configured")
             
         print(f"🚀 Starting scan against {target_url}")
         
-        # Simulate attack profiles (since parser/planner aren't fully implemented yet)
-        attack_profiles = ["sql_injection", "xss", "idor", "broken_auth", "ssrf"]
-        
-        # Filter out already completed profiles if resuming
-        remaining_profiles = [p for p in attack_profiles if p not in self.completed_profiles]
-        
-        if not remaining_profiles:
-            print("✨ All profiles already completed!")
-            return {"vulnerabilities": self.vulnerabilities}
-            
-        for profile in remaining_profiles:
-            print(f"\n⚡ Running attack profile: {profile}")
-            
-            # TODO: Actual attack logic here
-            # For now, simulate work and finding vulnerabilities
-            await self._simulate_attack(profile)
-            
-            self.completed_profiles.append(profile)
-            
-            # Save checkpoint
-            checkpoint = CheckpointData(
-                target_url=target_url,
-                config_hash=calculate_config_hash(self.config),
-                completed_profiles=self.completed_profiles,
-                vulnerabilities=self.vulnerabilities,
-                timestamp=time.time()
-            )
-            save_checkpoint(checkpoint, self.checkpoint_path)
-            print(f"💾 Checkpoint saved after {profile}")
-            
-        # Clean up checkpoint on successful completion
-        clean_checkpoint(self.checkpoint_path)
-        print("\n✅ Scan completed successfully! Checkpoint cleaned up.")
-            
-        return {"vulnerabilities": self.vulnerabilities}
+        findings = []
+        if HAS_LANGGRAPH:
+            # Build the graph
+            workflow = StateGraph(AgentState)
 
-    async def _simulate_attack(self, profile: str) -> None:
-        """Simulate an attack profile for demonstration."""
-        import asyncio
-        import random
-        
-        # Simulate work
-        await asyncio.sleep(1)
-        
-        # Simulate finding a vulnerability occasionally
-        if random.random() < 0.3:
-            vuln = {
-                "type": profile,
-                "severity": "high",
-                "description": f"Found a {profile} vulnerability!"
-            }
-            self.vulnerabilities.append(vuln)
-            print(f"🔥 FOUND VULNERABILITY: {profile}")
+            # Nodes
+            workflow.add_node("recon", partial(run_recon, app_config=self.config))
+            workflow.add_node("parse", parse_openapi)
+            workflow.add_node("plan", plan_attacks)
+            
+            # Edges
+            workflow.add_edge(START, "recon")
+            workflow.add_edge("recon", "parse")
+            workflow.add_edge("parse", "plan")
+
+            async with Executor(self.config) as executor:
+                workflow.add_node("execute", partial(execute_and_analyze, executor=executor))
+                workflow.add_edge("plan", "execute")
+
+                workflow.add_conditional_edges(
+                    "execute",
+                    should_continue,
+                    {
+                        "plan": "plan",
+                        "end": END
+                    }
+                )
+
+                app = workflow.compile()
+                
+                # Initial state
+                initial_state = {
+                    "spec_path": self.config.get("target", {}).get("openapi_spec", ""),
+                    "base_url": target_url,
+                    "endpoints": [],
+                    "current_endpoint": 0,
+                    "planned_attacks": [],
+                    "results": [],
+                    "findings": [],
+                    "recon_results": {}
+                }
+
+                # Run the agent
+                final_state = await app.ainvoke(initial_state)
+                findings = final_state.get("findings", [])
+        else:
+            print("⚠️  LangGraph not installed. Skipping standard agentic scan.")
+
+        self.vulnerabilities = findings
+
+        # Run chaos mode if enabled
+        chaos_findings = []
+        if self.chaos:
+            from chaos_kitten.brain.chaos_engine import ChaosEngine
+            
+            engine = ChaosEngine(chaos_level=self.chaos_level)
+            chaos_findings = await engine.run_chaos_tests(target_url)
+            
+            # Print chaos summary
+            summary = engine.get_summary()
+            if summary["total_findings"] > 0:
+                print("\n🌪️  [CHAOS] Summary:")
+                print("   Critical: {}".format(summary["by_severity"].get("critical", 0)))
+                print("   High: {}".format(summary["by_severity"].get("high", 0)))
+                print("   Medium: {}".format(summary["by_severity"].get("medium", 0)))
+            
+        return {
+            "vulnerabilities": self.vulnerabilities,
+            "chaos_findings": chaos_findings,
+        }

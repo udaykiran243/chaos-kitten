@@ -1,5 +1,8 @@
 """HTTP Executor - Async HTTP client for executing attacks."""
 
+import asyncio
+import logging
+import time
 from typing import Any, Dict, Optional, Union
 import httpx
 import asyncio
@@ -49,6 +52,8 @@ class Executor:
         self.rate_limit = rate_limit
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
+        self._rate_limiter: Optional[asyncio.Semaphore] = None
+        self._last_request_time: float = 0.0
     
     async def __aenter__(self) -> "Executor":
         """Context manager entry."""
@@ -82,6 +87,8 @@ class Executor:
         method: str,
         path: str,
         payload: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        graphql_query: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Execute an attack request.
