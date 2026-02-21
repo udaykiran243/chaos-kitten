@@ -23,9 +23,8 @@ Focus on:
 2. Escalation: If you see a specific error message (e.g., "SQL syntax error"), target that vulnerability specifically.
 3. Context: potential implementation details leaked in the response.
 
-Return a valid JSON array of strings (payloads).
-Each element in the array should be a string representing the payload (JSON string or raw string).
-Example output: ["{'price': -100}", "{'price': '1 OR 1=1'}", ...]
+Return ONLY a JSON array of 5 payload strings. Example:
+["{\\"price\\": -100}", "{\\"amount\\": 0}", "'; DROP TABLE--", "<script>alert(1)</script>", "' OR '1'='1"]
 """
 
 
@@ -42,7 +41,7 @@ class AdaptivePayloadGenerator:
         self.llm = llm
         self.max_rounds = max_rounds
 
-    def generate_payloads(
+    async def generate_payloads(
         self,
         endpoint: Dict[str, Any],
         previous_payload: Any,
@@ -69,7 +68,7 @@ class AdaptivePayloadGenerator:
 
             payload_str = str(previous_payload)
             
-            result = chain.invoke(
+            result = await chain.ainvoke(
                 {
                     "method": endpoint.get("method", "GET"),
                     "path": endpoint.get("path", ""),

@@ -108,7 +108,7 @@ chaos-kitten scan
 
 For deeper testing, enable LLM-powered adaptive fuzzing. This allows Chaos Kitten to analyze probe responses and generate context-aware payloads on the fly.
 
-Add the following to your `chaos_kitten.yaml`:
+Add the following to your `chaos-kitten.yaml`:
 
 ```yaml
 adaptive:
