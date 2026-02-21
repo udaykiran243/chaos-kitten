@@ -612,3 +612,172 @@ class AttackPlanner:
                 f"Test '{field_name}' of type '{field_type}' "
                 "with boundary values and injection strings."
             )
+
+
+# Natural Language Attack Targeting Prompt
+NATURAL_LANGUAGE_PLANNING_PROMPT = """You are a security expert tasked with identifying which API endpoints are most relevant to test for a specific security goal.
+
+User's Goal: {goal}
+
+Available Endpoints:
+{endpoints}
+
+Available Attack Profiles:
+{profiles}
+
+Analyze the user's goal and identify:
+1. Which endpoints are most relevant to this goal (ranked by relevance)
+2. Which attack profiles should be applied to these endpoints
+3. Custom payload focus areas or testing priorities specific to this goal
+
+You must respond ONLY with valid JSON (no markdown, no explanations outside JSON):
+{{
+    "endpoints": [
+        {{
+            "method": "POST",
+            "path": "/api/checkout",
+            "relevance_score": 0.95,
+            "reason": "Handles payment processing, critical for price manipulation testing"
+        }}
+    ],
+    "profiles": ["idor_basic", "mass_assignment", "bola"],
+    "focus": "Test for price/quantity manipulation in cart and checkout flows. Pay special attention to total calculation bypass and discount abuse."
+}}
+
+Provide your analysis:
+"""
+
+
+class NaturalLanguagePlanner:
+    """Plans attacks based on natural language goals."""
+
+    def __init__(self, endpoints: list[dict[str, Any]], config: dict[str, Any]):
+        """Initialize the NL planner.
+
+        Args:
+            endpoints: List of all available API endpoints
+            config: Application configuration with LLM settings
+        """
+        self.endpoints = endpoints
+        self.config = config
+        self.llm = self._init_llm()
+
+    def _init_llm(self):
+        """Initialize the LLM based on config."""
+        agent_config = self.config.get("agent", {})
+        provider = agent_config.get("llm_provider", "anthropic").lower()
+        model = agent_config.get("model", "claude-3-5-sonnet-20241022")
+        temperature = agent_config.get("temperature", 0.7)
+
+        if provider == "anthropic":
+            return ChatAnthropic(model=model, temperature=temperature)
+        elif provider == "openai":
+            return ChatOpenAI(model=model, temperature=temperature)
+        elif provider == "ollama":
+            return ChatOllama(model=model, temperature=temperature)
+        else:
+            logger.warning(f"Unknown provider {provider}, defaulting to Anthropic")
+            return ChatAnthropic(model=model, temperature=temperature)
+
+    def plan(self, goal: str) -> dict[str, Any]:
+        """Plan attacks based on natural language goal.
+
+        Args:
+            goal: User's natural language security goal
+
+        Returns:
+            Dictionary with:
+                - endpoints: List of relevant endpoints with relevance scores
+                - profiles: List of attack profile names to apply
+                - focus: Custom payload focus description
+                - reasoning: LLM's reasoning (for logging)
+        """
+        # Load available attack profiles
+        attack_profiles = self._load_available_profiles()
+
+        # Format endpoints for LLM
+        endpoints_str = json.dumps(
+            [
+                {
+                    "method": ep.get("method", "GET"),
+                    "path": ep.get("path", ""),
+                    "params": list(ep.get("parameters", {}).keys()),
+                    "body": list(ep.get("body", {}).keys()) if ep.get("body") else [],
+                }
+                for ep in self.endpoints
+            ],
+            indent=2
+        )
+
+        profiles_str = json.dumps(attack_profiles, indent=2)
+
+        # Create prompt
+        prompt = ChatPromptTemplate.from_template(NATURAL_LANGUAGE_PLANNING_PROMPT)
+        parser = JsonOutputParser()
+        chain = prompt | self.llm | parser
+
+        try:
+            logger.info(f"[GOAL] Planning attacks for goal: {goal}")
+            result = chain.invoke({
+                "goal": goal,
+                "endpoints": endpoints_str,
+                "profiles": profiles_str
+            })
+
+            # Log the reasoning
+            if result.get("endpoints"):
+                logger.info(f"[GOAL] LLM selected {len(result['endpoints'])} relevant endpoints")
+                for ep in result.get("endpoints", [])[:3]:  # Log top 3
+                    logger.info(
+                        f"[GOAL]   - {ep.get('method')} {ep.get('path')} "
+                        f"(score: {ep.get('relevance_score', 0):.2f})"
+                    )
+
+            if result.get("focus"):
+                logger.info(f"[GOAL] Focus area: {result['focus']}")
+
+            # Add reasoning for return
+            result["reasoning"] = f"LLM analysis for goal: '{goal}'"
+
+            return result
+
+        except Exception as exc:
+            logger.exception(f"[GOAL] Natural language planning failed: {exc}")
+            # Fallback: return all endpoints with no filtering
+            return {
+                "endpoints": [
+                    {
+                        "method": ep.get("method", "GET"),
+                        "path": ep.get("path", ""),
+                        "relevance_score": 0.5,
+                        "reason": "Fallback: LLM planning failed"
+                    }
+                    for ep in self.endpoints
+                ],
+                "profiles": ["sql_injection_basic", "xss_reflected", "idor_basic"],
+                "focus": "Standard security testing (LLM planning unavailable)",
+                "reasoning": f"Fallback due to error: {exc}"
+            }
+
+    def _load_available_profiles(self) -> list[str]:
+        """Load list of available attack profile names."""
+        try:
+            import glob
+            profile_files = glob.glob("toys/*.yaml")
+            return [
+                os.path.basename(f).replace(".yaml", "")
+                for f in profile_files
+            ]
+        except Exception:
+            # Fallback to common profiles
+            return [
+                "sql_injection_basic",
+                "xss_reflected",
+                "idor_basic",
+                "bola",
+                "command_injection",
+                "path_traversal",
+                "xxe",
+                "ssrf"
+            ]
+

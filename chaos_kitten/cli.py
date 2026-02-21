@@ -127,6 +127,12 @@ def scan(
         "--demo",
         help="Run scan against the demo vulnerable API",
     ),
+    goal: str = typer.Option(
+        None,
+        "--goal",
+        "-g",
+        help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
+    ),
 ):
     """Scan an API for security vulnerabilities."""
     console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten", border_style="magenta"))
@@ -194,6 +200,10 @@ def scan(
     if provider:
         if "agent" not in app_config: app_config["agent"] = {}
         app_config["agent"]["llm_provider"] = provider
+
+    if goal:
+        if "agent" not in app_config: app_config["agent"] = {}
+        app_config["agent"]["goal"] = goal
 
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator

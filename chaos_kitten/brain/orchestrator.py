@@ -20,7 +20,7 @@ from rich.progress import (
     TextColumn,
 )
 
-from chaos_kitten.brain.attack_planner import AttackPlanner
+from chaos_kitten.brain.attack_planner import AttackPlanner, NaturalLanguagePlanner
 
 # Internal Chaos Kitten imports
 from chaos_kitten.brain.openapi_parser import OpenAPIParser
@@ -43,6 +43,7 @@ class AgentState(TypedDict):
     results: List[Dict[str, Any]]
     findings: List[Dict[str, Any]]
     recon_results: Dict[str, Any]
+    nl_plan: Dict[str, Any]  # Natural language planning results
 
 
 async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,6 +77,45 @@ def parse_openapi(state: AgentState) -> Dict[str, Any]:
         logger.exception("Failed to parse OpenAPI spec")
         raise
     return {"endpoints": endpoints, "current_endpoint": 0}
+
+
+def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Filter endpoints based on natural language goal."""
+    goal = app_config.get("agent", {}).get("goal")
+    
+    if not goal:
+        # No goal specified, return all endpoints unchanged
+        return {"nl_plan": None}
+    
+    console.print(f"[bold cyan]🎯 Planning attacks for goal:[/bold cyan] {goal}")
+    
+    try:
+        planner = NaturalLanguagePlanner(state["endpoints"], app_config)
+        nl_plan = planner.plan(goal)
+        
+        # Filter endpoints based on NL plan
+        relevant_paths = {ep.get("path") for ep in nl_plan.get("endpoints", [])}
+        filtered_endpoints = [
+            ep for ep in state["endpoints"]
+            if ep.get("path") in relevant_paths
+        ]
+        
+        console.print(
+            f"[green]✓ LLM selected {len(filtered_endpoints)}/{len(state['endpoints'])} "
+            f"relevant endpoints[/green]"
+        )
+        
+        if nl_plan.get("focus"):
+            console.print(f"[yellow]Focus:[/yellow] {nl_plan['focus']}")
+        
+        return {
+            "endpoints": filtered_endpoints or state["endpoints"],  # Fallback to all if none match
+            "nl_plan": nl_plan
+        }
+    except Exception as exc:
+        logger.exception(f"Natural language planning failed: {exc}")
+        console.print(f"[yellow]⚠️  NL planning failed, using all endpoints[/yellow]")
+        return {"nl_plan": None}
 
 
 def plan_attacks(state: AgentState) -> Dict[str, Any]:
@@ -207,6 +247,7 @@ class Orchestrator:
 
         workflow.add_node("recon", partial(run_recon, app_config=self.config))
         workflow.add_node("parse", parse_openapi)
+        workflow.add_node("nl_plan", partial(natural_language_plan, app_config=self.config))
         workflow.add_node("plan", plan_attacks)
         workflow.add_node(
             "execute_analyze", partial(execute_and_analyze, executor=executor)
@@ -214,7 +255,8 @@ class Orchestrator:
 
         workflow.add_edge(START, "recon")
         workflow.add_edge("recon", "parse")
-        workflow.add_edge("parse", "plan")
+        workflow.add_edge("parse", "nl_plan")
+        workflow.add_edge("nl_plan", "plan")
         workflow.add_edge("plan", "execute_analyze")
 
         workflow.add_conditional_edges(
@@ -274,6 +316,7 @@ class Orchestrator:
                     "planned_attacks": [],
                     "results": [],
                     "findings": [],
+                    "nl_plan": {},
                 }
 
                 app = self._build_graph(executor)

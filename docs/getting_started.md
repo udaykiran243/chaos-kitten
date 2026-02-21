@@ -102,6 +102,27 @@ ANTHROPIC_API_KEY=your_key_here
 chaos-kitten scan
 ```
 
+### 5. Use Natural Language Targeting (Optional)
+
+The `--goal` flag lets you describe what you want to test in plain English. Chaos Kitten's LLM will automatically select relevant endpoints and attack profiles based on your goal.
+
+**Example 1: Payment Security**
+```bash
+chaos-kitten scan --goal "find all endpoints that handle money or payments and check if prices can be manipulated"
+```
+
+**Example 2: Access Control**
+```bash
+chaos-kitten scan --goal "I want to check if admin endpoints are accessible to regular users"
+```
+
+**Example 3: Authentication Testing**
+```bash
+chaos-kitten scan --goal "test the authentication system for account takeover risks"
+```
+
+Without `--goal`, Chaos Kitten runs a full scan testing all endpoints. With `--goal`, the LLM prioritizes endpoints relevant to your security concern.
+
 ## Understanding Results
 
 ### Severity Levels
