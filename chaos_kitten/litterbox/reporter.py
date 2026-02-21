@@ -649,17 +649,17 @@ class Reporter:
                         failure.set("message", vuln.get("description", ""))
                         failure.set("type", vuln.get("type", "SecurityVulnerability"))
                         failure.text = (
-                            f"Severity: {severity.upper()}\\n"
-                            f"Endpoint: {vuln.get('endpoint', 'Unknown')}\\n"
-                            f"Remediation: {vuln.get('remediation', '')}\\n"
+                            f"Severity: {severity.upper()}\n"
+                            f"Endpoint: {vuln.get('endpoint', 'Unknown')}\n"
+                            f"Remediation: {vuln.get('remediation', '')}\n"
                             f"Proof of Concept: {vuln.get('proof_of_concept', '')}"
                         )
                     else:
                         system_out = ET.SubElement(testcase, "system-out")
                         system_out.text = (
-                            f"Severity: {severity.upper()}\\n"
-                            f"Description: {vuln.get('description', '')}\\n"
-                            f"Endpoint: {vuln.get('endpoint', 'Unknown')}\\n"
+                            f"Severity: {severity.upper()}\n"
+                            f"Description: {vuln.get('description', '')}\n"
+                            f"Endpoint: {vuln.get('endpoint', 'Unknown')}\n"
                             f"Remediation: {vuln.get('remediation', '')}"
                         )
 
