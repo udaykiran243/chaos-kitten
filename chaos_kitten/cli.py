@@ -336,21 +336,21 @@ def diff(
                 console.print(f"    - {mod}")
         console.print()
 
-    # Show what will be tested
+    # Show what will be tested (display-only count; orchestrator uses spec/delta config)
     if full:
         console.print("[bold yellow]⚠️  --full flag set: Testing ALL endpoints[/bold yellow]")
-        endpoints_to_test = summary["total_new"]
+        endpoints_to_test_display = summary["total_new"]
     else:
-        endpoints_to_test = summary["added_count"] + summary["modified_count"]
-        console.print(f"[bold green]✓ Delta mode:[/bold green] Testing {endpoints_to_test} changed endpoints, skipping {summary['unchanged_count']} unchanged")
+        endpoints_to_test_display = summary["added_count"] + summary["modified_count"]
+        console.print(f"[bold green]✓ Delta mode:[/bold green] Testing {endpoints_to_test_display} changed endpoints, skipping {summary['unchanged_count']} unchanged")
 
-    if endpoints_to_test == 0 and not critical_findings:
+    if endpoints_to_test_display == 0 and not critical_findings:
         console.print()
         console.print("[bold green]✅ No changes detected! API is identical.[/bold green]")
         return
 
     # Check for target URL
-    if not target and endpoints_to_test > 0:
+    if not target and endpoints_to_test_display > 0:
         console.print()
         console.print("[bold red]❌ Missing --base-url:[/bold red] Need target URL to test endpoints")
         console.print("[dim]Example: --base-url https://api.example.com[/dim]")
