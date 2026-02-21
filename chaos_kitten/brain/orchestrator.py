@@ -23,7 +23,6 @@ from rich.progress import (
 
 from chaos_kitten.brain.attack_planner import AttackPlanner
 from chaos_kitten.brain.adaptive_planner import AdaptivePayloadGenerator
-from langchain_anthropic import ChatAnthropic
 # Internal Chaos Kitten imports
 from chaos_kitten.brain.openapi_parser import OpenAPIParser
 # from chaos_kitten.brain.response_analyzer import ResponseAnalyzer # Deprecated/Replaced
@@ -67,7 +66,7 @@ def plan_attacks(state: AgentState) -> Dict[str, Any]:
 
 
 async def execute_and_analyze(
-    state: AgentState, executor: Executor, config: Dict[str, Any]
+    state: AgentState, executor: Executor, app_config: Dict[str, Any]
 ) -> Dict[str, Any]:
     idx = state["current_endpoint"]
     if idx >= len(state["endpoints"]):
@@ -76,19 +75,41 @@ async def execute_and_analyze(
     endpoint = state["endpoints"][idx]
     analyzer = ResponseAnalyzer()
     
-    adaptive_config = config.get("adaptive", {}) or config.get("agent", {}).get("adaptive", {})
+    adaptive_config = app_config.get("adaptive", {}) or app_config.get("agent", {}).get("adaptive", {})
     adaptive_mode = adaptive_config.get("enabled", False)
     max_rounds = adaptive_config.get("max_rounds", 3)
     
-    agent_config = config.get("agent", {})
+    agent_config = app_config.get("agent", {})
     max_concurrent_agents = agent_config.get("max_concurrent_agents", 3)
 
     # Initialize Adaptive Generator if needed
     adaptive_gen = None
     if adaptive_mode:
-        # Default to Claude for now, could get from config
-        llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=0.7)
-        adaptive_gen = AdaptivePayloadGenerator(llm, max_rounds=max_rounds)
+        provider = agent_config.get("llm_provider", "anthropic").lower()
+        model = agent_config.get("model", "claude-3-5-sonnet-20241022")
+        temperature = agent_config.get("temperature", 0.7)
+
+        try:
+            if provider == "openai":
+                from langchain_openai import ChatOpenAI
+                llm = ChatOpenAI(model=model, temperature=temperature)
+            elif provider == "anthropic":
+                try: 
+                    from langchain_anthropic import ChatAnthropic
+                    llm = ChatAnthropic(model=model, temperature=temperature)
+                except ImportError:
+                    logger.error("langchain_anthropic not installed. Disabling adaptive mode.")
+                    adaptive_mode = False
+                    llm = None
+            else:
+                raise ValueError(f"Unsupported LLM provider for adaptive mode: {provider}")
+                
+            if adaptive_mode and llm:
+                adaptive_gen = AdaptivePayloadGenerator(llm, max_rounds=max_rounds)
+        except ImportError as e:
+            logger.error(f"Failed to import LLM provider dependencies: {e}")
+            logger.warning("Adaptive mode disabled due to missing dependencies.")
+            adaptive_mode = False
 
     new_findings = []
     
@@ -96,7 +117,7 @@ async def execute_and_analyze(
     async def run_single_payload(payload_val, attack_conf, is_adaptive=False):
         endpoint_path = endpoint.get("path")
         if not endpoint_path:
-            return None
+            return None, None
 
         try:
             result = await executor.execute_attack(
@@ -110,7 +131,7 @@ async def execute_and_analyze(
                 endpoint.get("method"),
                 endpoint.get("path"),
             )
-            return None
+            return None, None
 
         payload_used = ""
         if payload_val is None:
@@ -180,6 +201,11 @@ async def execute_and_analyze(
         for attack in attacks_in_group:
             # 1. Run initial payload
             resp, finding = await run_single_payload(attack.get("payload"), attack, is_adaptive=False)
+            
+            # Guard against execution failure
+            if resp is None:
+                continue
+
             if finding:
                 group_findings.append(finding)
             
@@ -190,7 +216,7 @@ async def execute_and_analyze(
                 # To really limit per endpoint globally, we'd need a shared atomic counter or context managed counter.
                 # For simplicity in MVP parallel mode, we limit per attack group or just rely on max_rounds inside generator call loop.
                 try:
-                    generated_payloads = adaptive_gen.generate_payloads(
+                    generated_payloads = await adaptive_gen.generate_payloads(
                         endpoint=endpoint,
                         previous_payload=attack.get("payload"),
                         response=resp
@@ -225,7 +251,8 @@ async def execute_and_analyze(
     if tasks:
         results = await asyncio.gather(*tasks)
         for res in results:
-            new_findings.extend(res)
+            if res:
+                new_findings.extend(res)
 
     return {"findings": state["findings"] + new_findings, "current_endpoint": idx + 1}
 
@@ -261,7 +288,7 @@ class Orchestrator:
         workflow.add_node("parse", parse_openapi)
         workflow.add_node("plan", plan_attacks)
         workflow.add_node(
-            "execute_analyze", partial(execute_and_analyze, executor=executor, config=self.config)
+            "execute_analyze", partial(execute_and_analyze, executor=executor, app_config=self.config)
         )
 
         workflow.add_edge(START, "parse")

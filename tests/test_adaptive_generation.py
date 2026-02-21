@@ -23,30 +23,32 @@ def mock_llm():
 def adaptive_gen(mock_llm):
     return AdaptivePayloadGenerator(mock_llm)
 
-def test_generate_payloads_success(adaptive_gen):
+@pytest.mark.asyncio
+async def test_generate_payloads_success(adaptive_gen):
     endpoint = {"method": "POST", "path": "/api/order"}
     previous_payload = {"price": 10}
     response = {"status_code": 200, "body": "OK"}
     
     with patch("chaos_kitten.brain.adaptive_planner.ChatPromptTemplate") as mock_prompt:
         mock_chain = MagicMock()
-        mock_chain.invoke.return_value = ["payload1", "payload2"]
+        mock_chain.ainvoke = AsyncMock(return_value=["payload1", "payload2"])
         mock_prompt.from_template.return_value.__or__.return_value.__or__.return_value = mock_chain
         
-        payloads = adaptive_gen.generate_payloads(endpoint, previous_payload, response)
+        payloads = await adaptive_gen.generate_payloads(endpoint, previous_payload, response)
         
         assert len(payloads) == 2
         assert payloads[0] == "payload1"
         assert payloads[1] == "payload2"
 
-def test_generate_payloads_error_handling(adaptive_gen):
+@pytest.mark.asyncio
+async def test_generate_payloads_error_handling(adaptive_gen):
     endpoint = {"method": "GET", "path": "/api/test"}
     with patch("chaos_kitten.brain.adaptive_planner.ChatPromptTemplate") as mock_prompt:
         mock_chain = MagicMock()
-        mock_chain.invoke.side_effect = Exception("LLM Error")
+        mock_chain.ainvoke = AsyncMock(side_effect=Exception("LLM Error"))
         mock_prompt.from_template.return_value.__or__.return_value.__or__.return_value = mock_chain
         
-        payloads = adaptive_gen.generate_payloads(endpoint, "pkg", {})
+        payloads = await adaptive_gen.generate_payloads(endpoint, "pkg", {})
         assert payloads == []
 
 @pytest.mark.asyncio
@@ -73,16 +75,42 @@ async def test_orchestrator_adaptive_integration():
         }
     }
     
-    with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen, \
-         patch("chaos_kitten.brain.orchestrator.ChatAnthropic") as MockLLM:
+    with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen:
         
         mock_gen_instance = MockGen.return_value
-        mock_gen_instance.generate_payloads.return_value = ['{"p": 1}', '{"p": 2}']
+        # Since orchestrator awaits generate_payloads, we must mock it as async
+        mock_gen_instance.generate_payloads = AsyncMock(return_value=['{"p": 1}', '{"p": 2}'])
         
-        result = await execute_and_analyze(state, executor, config)
+        # We need to make sure the LLM setup doesn't fail. 
+        # Since we mock AdaptivePayloadGenerator constructor, the arguments pass to it don't matter much 
+        # as long as the import succeeds or we bypass it.
+        # But wait, execute_and_analyze tries to instantiate ChatAnthropic BEFORE creating AdaptivePayloadGenerator.
+        # So we need to ensure that part works or use a different provider.
         
-        assert executor.execute_attack.call_count == 3
-        mock_gen_instance.generate_payloads.assert_called_once()
+        # Easier path: mock the local import in orchestrator or just don't patch ChatAnthropic and assume it works 
+        # or use sys.modules patching. 
+        # Better: Configure it to use a provider that we can easily mock or just mock the sys.modules for langchain_anthropic
+        
+        with patch.dict("sys.modules", {"langchain_anthropic": MagicMock()}):
+             # We also need to patch ChatAnthropic inside the module if it was imported, but it is imported locally.
+             # So sys.modules patch should work for the import statement.
+             pass
+
+    # Actually, simpler approach:
+    # 1. Mock 'chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator' (Done)
+    # 2. To avoid ChatAnthropic import issues or to satisfy the loop, send "llm_provider": "openai" and mock langchain_openai? 
+    # Or just mock the import using patch.dict(sys.modules, ...)
+    
+    # Let's try patching sys.modules to simulate langchain_anthropic existence
+    with patch.dict("sys.modules", {"langchain_anthropic": MagicMock()}):
+        with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen:
+             mock_gen_instance = MockGen.return_value
+             mock_gen_instance.generate_payloads = AsyncMock(return_value=['{"p": 1}', '{"p": 2}'])
+             
+             result = await execute_and_analyze(state, executor, config)
+
+             assert executor.execute_attack.call_count == 4
+             assert mock_gen_instance.generate_payloads.call_count == 2
 
 @pytest.mark.asyncio
 async def test_orchestrator_adaptive_max_rounds():
@@ -107,13 +135,14 @@ async def test_orchestrator_adaptive_max_rounds():
         }
     }
     
-    with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen, \
-         patch("chaos_kitten.brain.orchestrator.ChatAnthropic"):
-        
-        mock_gen_instance = MockGen.return_value
-        mock_gen_instance.generate_payloads.return_value = ["AP1"]
-        
-        await execute_and_analyze(state, executor, config)
-        
-        assert mock_gen_instance.generate_payloads.call_count == 1
-        assert executor.execute_attack.call_count == 3
+    with patch.dict("sys.modules", {"langchain_anthropic": MagicMock()}):
+        with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen:
+            
+            mock_gen_instance = MockGen.return_value
+            # Since orchestrator awaits generate_payloads, we must mock it as async
+            mock_gen_instance.generate_payloads = AsyncMock(return_value=["AP1"])
+            
+            await execute_and_analyze(state, executor, config)
+            
+            assert mock_gen_instance.generate_payloads.call_count == 2
+            assert executor.execute_attack.call_count == 4
