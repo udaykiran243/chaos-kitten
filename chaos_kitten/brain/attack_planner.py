@@ -702,7 +702,7 @@ class NaturalLanguagePlanner:
                     "method": ep.get("method", "GET"),
                     "path": ep.get("path", ""),
                     "params": [p.get("name", "") for p in ep.get("parameters", []) if isinstance(p, dict)],
-                    "body": list((ep.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {}).get("properties", {})).keys()),
+                    "body": list(((ep.get("requestBody") or {}).get("content", {}).get("application/json", {}).get("schema", {}).get("properties", {})).keys()),
                 }
                 for ep in self.endpoints
             ],
@@ -728,9 +728,12 @@ class NaturalLanguagePlanner:
             if result.get("endpoints"):
                 logger.info(f"[GOAL] LLM selected {len(result['endpoints'])} relevant endpoints")
                 for ep in result.get("endpoints", [])[:3]:  # Log top 3
+                    score = ep.get('relevance_score', 0)
+                    # Convert to float if LLM returned string
+                    score_val = float(score) if isinstance(score, (str, int, float)) else 0
                     logger.info(
                         f"[GOAL]   - {ep.get('method')} {ep.get('path')} "
-                        f"(score: {ep.get('relevance_score', 0):.2f})"
+                        f"(score: {score_val:.2f})"
                     )
 
             if result.get("focus"):
@@ -742,7 +745,7 @@ class NaturalLanguagePlanner:
             return result
 
         except Exception as exc:
-            logger.exception(f"[GOAL] Natural language planning failed: {exc}")
+            logger.exception("[GOAL] Natural language planning failed")
             # Fallback: return all endpoints with no filtering
             return {
                 "endpoints": [

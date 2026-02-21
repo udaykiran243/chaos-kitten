@@ -135,7 +135,7 @@ def test_natural_language_planner_fallback(mock_llm, sample_endpoints, sample_co
             # Assertions - should fallback gracefully
             assert "endpoints" in result
             assert len(result["endpoints"]) == len(sample_endpoints)  # All endpoints returned
-            assert "fallback" in result["focus"].lower()
+            assert "Fallback" in result["reasoning"]
             assert "reasoning" in result
 
 
