@@ -20,7 +20,7 @@ payloads:
   # Category 1: Header Manipulation
   - "127.0.0.1"
   - "::1"
-  - ""                 # empty string 
+  - "" # empty string
   - "0.0.0.0"
   - "localhost"
   - "192.168.1.1"
@@ -28,7 +28,6 @@ payloads:
   - "172.16.0.1"
   # Note: Potential IMDS/SSRF probe.
   - "169.254.169.254"
-  
 
   # Category 2: Multi-Header Bypass
   # (These are tested by applying Category 1 payloads to the target_fields above)
@@ -43,17 +42,26 @@ payloads:
   - "null"
 
   # Category 4: Account Lockout Bypass (Add 5+)
-  - "admin "           # Trailing space
-  - "admin\t"          # Tab character
-  - "ADMIN"            # Case variation
-  - "adm\u00efn"       # Unicode lookalike
-  - " admin"           # Leading space
+  - "admin " # Trailing space
+  - "admin\t" # Tab character
+  - "ADMIN" # Case variation
+  - "adm\u00efn" # Unicode lookalike
+  - " admin" # Leading space
 
-  # Category 5: Cache Bypass (Add 5+)
+  # Category 5: Timing / Distributed Bypass (Add 5+)
+  - "X-Request-ID: chaos-timing-001"
+  - "X-Correlation-ID: chaos-timing-001"
+  - "X-Request-ID: chaos-timing-001" # Duplicate — tests idempotency / per-request counters
+  - "X-Forwarded-Host: localhost"
+  - "X-Original-URL: /admin"
+
+  # Category 6: Cache Bypass (Add 5+)
   - "no-cache"
   - "no-store, must-revalidate"
   - "max-age=0"
-
+  - "no-cache, no-store, private"
+  - "must-revalidate, proxy-revalidate"
+  - "s-maxage=0"
 
 # success_indicators: how Chaos Kitten knows the attack worked
 success_indicators:
