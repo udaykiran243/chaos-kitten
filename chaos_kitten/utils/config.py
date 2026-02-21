@@ -101,3 +101,8 @@ class Config:
     def safety(self) -> Dict[str, Any]:
         """Get safety configuration."""
         return self._config.get("safety", {})
+    
+    @property
+    def adaptive(self) -> Dict[str, Any]:
+        """Get adaptive configuration."""
+        return self._config.get("adaptive", {})
