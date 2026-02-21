@@ -357,8 +357,6 @@ def diff(
         raise typer.Exit(code=1)
 
     # Prepare config for orchestrator
-    from chaos_kitten.utils.config import load_config
-
     app_config = {
         "target": {
             "base_url": target,

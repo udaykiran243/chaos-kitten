@@ -87,20 +87,25 @@ class SpecDiffer:
             modifications = self._detect_modifications(old_ep, new_ep)
 
             if modifications:
-                # Check for auth removal (CRITICAL)
-                severity = "info"
+                # Check for auth removal (CRITICAL) — use ranking to prevent downgrade
+                _SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+                current_rank = _SEVERITY_RANK["info"]
                 reason = "Endpoint modified"
 
                 for mod in modifications:
                     if "authentication removed" in mod.lower() or "security requirement removed" in mod.lower():
-                        severity = "critical"
+                        current_rank = max(current_rank, _SEVERITY_RANK["critical"])
                         reason = "Authentication requirement removed — potential security regression"
                         break
                     elif "parameter" in mod.lower():
-                        severity = "medium"
-                        reason = "Parameters modified"
+                        current_rank = max(current_rank, _SEVERITY_RANK["medium"])
+                        if current_rank == _SEVERITY_RANK["medium"]:
+                            reason = "Parameters modified"
                     elif "response" in mod.lower():
-                        severity = "low"
+                        current_rank = max(current_rank, _SEVERITY_RANK["low"])
+
+                # Invert back to name
+                severity = next(k for k, v in _SEVERITY_RANK.items() if v == current_rank)
 
                 change = EndpointChange(
                     change_type="modified",
@@ -228,9 +233,9 @@ class SpecDiffer:
         removed_responses = old_responses - new_responses
 
         if added_responses:
-            modifications.append(f"Added response codes: {', '.join(sorted(added_responses))}")
+            modifications.append(f"Added response codes: {', '.join(str(c) for c in sorted(added_responses, key=lambda x: int(x) if str(x).isdigit() else 0))}")
         if removed_responses:
-            modifications.append(f"Removed response codes: {', '.join(sorted(removed_responses))}")
+            modifications.append(f"Removed response codes: {', '.join(str(c) for c in sorted(removed_responses, key=lambda x: int(x) if str(x).isdigit() else 0))}")
 
         return modifications
 
@@ -271,6 +276,10 @@ class SpecDiffer:
                 # Use new_endpoint for both added and modified
                 endpoint = change.new_endpoint
                 if endpoint:
-                    delta_endpoints.append(endpoint)
+                    delta_endpoints.append({
+                        "method": change.method,
+                        "path": change.path,
+                        **endpoint,  # spread in summary, parameters, responses, security, etc.
+                    })
 
         return delta_endpoints
