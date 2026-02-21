@@ -173,7 +173,8 @@ def scan(
             from chaos_kitten.utils.config import Config
             config_obj = Config(config)
             cfg = config_obj.load()
-        except Exception:
+        except FileNotFoundError as e:
+            console.print(f"[yellow]⚠️  {e}[/yellow]")
             cfg = {"target": {}, "reporting": {}}
         
         # Override with CLI args
