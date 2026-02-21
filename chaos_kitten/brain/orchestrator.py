@@ -358,10 +358,10 @@ class Orchestrator:
                                 )
                                 save_checkpoint(checkpoint_data, self.checkpoint_path)
 
-            findings = final_state.get("findings", [])
+            self.vulnerabilities = final_state.get("findings", [])
         else:
             console.print("⚠️  [bold red]LangGraph not installed. Skipping standard agentic scan.[/bold red]")
-            findings = []
+            self.vulnerabilities = []
 
         # Run chaos mode if enabled
         chaos_findings = []
@@ -382,4 +382,9 @@ class Orchestrator:
         return {
             "vulnerabilities": self.vulnerabilities,
             "chaos_findings": chaos_findings,
+            "summary": {
+                "total_endpoints": len(final_state.get("endpoints", [])),
+                "tested_endpoints": final_state.get("current_endpoint", 0),
+                "vulnerabilities_found": len(self.vulnerabilities),
+            },
         }
