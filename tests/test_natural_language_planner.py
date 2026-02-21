@@ -139,11 +139,14 @@ def test_natural_language_planner_fallback(mock_llm, sample_endpoints, sample_co
             assert "reasoning" in result
 
 
-def test_natural_language_planner_load_profiles():
+@patch("chaos_kitten.brain.attack_planner.ChatAnthropic")
+def test_natural_language_planner_load_profiles(mock_llm):
     """Test loading available attack profiles."""
     config = {"agent": {"llm_provider": "anthropic"}}
-    planner = NaturalLanguagePlanner([], config)
+    mock_llm_instance = MagicMock()
+    mock_llm.return_value = mock_llm_instance
     
+    planner = NaturalLanguagePlanner([], config)
     profiles = planner._load_available_profiles()
     
     # Should return a list of profile names

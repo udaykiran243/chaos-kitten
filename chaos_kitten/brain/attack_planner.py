@@ -701,8 +701,8 @@ class NaturalLanguagePlanner:
                 {
                     "method": ep.get("method", "GET"),
                     "path": ep.get("path", ""),
-                    "params": list(ep.get("parameters", {}).keys()),
-                    "body": list(ep.get("body", {}).keys()) if ep.get("body") else [],
+                    "params": [p.get("name", "") for p in ep.get("parameters", []) if isinstance(p, dict)],
+                    "body": list((ep.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {}).get("properties", {})).keys()),
                 }
                 for ep in self.endpoints
             ],
@@ -756,7 +756,7 @@ class NaturalLanguagePlanner:
                 ],
                 "profiles": ["sql_injection_basic", "xss_reflected", "idor_basic"],
                 "focus": "Standard security testing (LLM planning unavailable)",
-                "reasoning": f"Fallback due to error: {exc}"
+                "reasoning": "Fallback: LLM planning failed"
             }
 
     def _load_available_profiles(self) -> list[str]:

@@ -85,7 +85,7 @@ def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict
     
     if not goal:
         # No goal specified, return all endpoints unchanged
-        return {"nl_plan": None}
+        return {"nl_plan": {}}
     
     console.print(f"[bold cyan]🎯 Planning attacks for goal:[/bold cyan] {goal}")
     
@@ -113,9 +113,9 @@ def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict
             "nl_plan": nl_plan
         }
     except Exception as exc:
-        logger.exception(f"Natural language planning failed: {exc}")
-        console.print(f"[yellow]⚠️  NL planning failed, using all endpoints[/yellow]")
-        return {"nl_plan": None}
+        logger.exception("Natural language planning failed: %s", exc)
+        console.print("[yellow]⚠️  NL planning failed, using all endpoints[/yellow]")
+        return {"nl_plan": {}}
 
 
 def plan_attacks(state: AgentState) -> Dict[str, Any]:
