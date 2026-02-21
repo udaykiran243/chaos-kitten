@@ -226,6 +226,205 @@ def scan(
         # console.print(traceback.format_exc())
         raise typer.Exit(code=1)
 
+
+@app.command()
+def diff(
+    old: str = typer.Option(
+        ...,
+        "--old",
+        help="Path to old OpenAPI spec (JSON or YAML)",
+    ),
+    new: str = typer.Option(
+        ...,
+        "--new",
+        help="Path to new OpenAPI spec (JSON or YAML)",
+    ),
+    target: str = typer.Option(
+        None,
+        "--base-url",
+        "-t",
+        help="Base URL for the API (e.g., https://api.example.com)",
+    ),
+    output: str = typer.Option(
+        "./reports",
+        "--output",
+        "-o",
+        help="Directory to save the security report",
+    ),
+    format: str = typer.Option(
+        "html",
+        "--format",
+        "-f",
+        help="Format of the report (html, markdown, json, sarif)",
+    ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Run full scan on all endpoints (overrides delta-only mode)",
+    ),
+    fail_on_critical: bool = typer.Option(
+        False,
+        "--fail-on-critical",
+        help="Exit with code 1 if critical vulnerabilities found",
+    ),
+):
+    """API Spec Diff Scanning - Test only what changed between API versions."""
+    console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten - Diff Mode", border_style="magenta"))
+    console.print()
+
+    # Load specs
+    import json
+    import yaml
+    from pathlib import Path
+    from chaos_kitten.brain.spec_differ import SpecDiffer
+
+    def load_spec(path: str) -> dict:
+        """Load OpenAPI spec from JSON or YAML."""
+        spec_path = Path(path)
+        if not spec_path.exists():
+            console.print(f"[bold red]❌ File not found:[/bold red] {path}")
+            raise typer.Exit(code=1)
+
+        content = spec_path.read_text(encoding="utf-8")
+        try:
+            if spec_path.suffix in [".yaml", ".yml"]:
+                return yaml.safe_load(content)
+            else:
+                return json.loads(content)
+        except Exception as e:
+            console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+    old_spec = load_spec(old)
+    new_spec = load_spec(new)
+
+    # Compute diff
+    console.print("[bold cyan]📊 Computing API diff...[/bold cyan]")
+    differ = SpecDiffer(old_spec, new_spec)
+    diff_result = differ.compute_diff()
+
+    summary = diff_result["summary"]
+    critical_findings = diff_result["critical_findings"]
+
+    # Display diff summary
+    console.print()
+    console.print(Panel(
+        f"""[bold]Diff Summary:[/bold]
+        
+📊 Total endpoints in old spec: {summary['total_old']}
+📊 Total endpoints in new spec: {summary['total_new']}
+
+➕ [green]Added endpoints:[/green] {summary['added_count']}
+➖ [yellow]Removed endpoints:[/yellow] {summary['removed_count']}
+🔄 [cyan]Modified endpoints:[/cyan] {summary['modified_count']}
+✓ [dim]Unchanged endpoints:[/dim] {summary['unchanged_count']}
+""",
+        title="API Spec Diff",
+        border_style="cyan"
+    ))
+
+    # Show critical findings immediately
+    if critical_findings:
+        console.print()
+        console.print(Panel(
+            f"[bold red]🚨 {len(critical_findings)} CRITICAL security regression(s) detected![/bold red]",
+            border_style="red"
+        ))
+        for finding in critical_findings:
+            console.print(f"  • [red]{finding.method} {finding.path}[/red]: {finding.reason}")
+            for mod in finding.modifications or []:
+                console.print(f"    - {mod}")
+        console.print()
+
+    # Show what will be tested
+    if full:
+        console.print("[bold yellow]⚠️  --full flag set: Testing ALL endpoints[/bold yellow]")
+        endpoints_to_test = summary["total_new"]
+    else:
+        endpoints_to_test = summary["added_count"] + summary["modified_count"]
+        console.print(f"[bold green]✓ Delta mode:[/bold green] Testing {endpoints_to_test} changed endpoints, skipping {summary['unchanged_count']} unchanged")
+
+    if endpoints_to_test == 0 and not critical_findings:
+        console.print()
+        console.print("[bold green]✅ No changes detected! API is identical.[/bold green]")
+        return
+
+    # Check for target URL
+    if not target and endpoints_to_test > 0:
+        console.print()
+        console.print("[bold red]❌ Missing --base-url:[/bold red] Need target URL to test endpoints")
+        console.print("[dim]Example: --base-url https://api.example.com[/dim]")
+        raise typer.Exit(code=1)
+
+    # Prepare config for orchestrator
+    from chaos_kitten.utils.config import load_config
+
+    app_config = {
+        "target": {
+            "base_url": target,
+            "openapi_spec": new,  # Use new spec for testing
+        },
+        "agent": {
+            "llm_provider": "anthropic",
+            "model": "claude-3-5-sonnet-20241022",
+            "temperature": 0.7,
+            "max_iterations": 10,
+        },
+        "executor": {
+            "concurrent_requests": 5,
+            "timeout": 30,
+        },
+        "output": {
+            "path": output,
+            "format": format,
+            "include_poc": True,
+            "include_remediation": True,
+        },
+        # Diff mode specific
+        "diff_mode": {
+            "enabled": not full,
+            "delta_endpoints": differ.get_delta_endpoints() if not full else None,
+            "critical_findings": critical_findings,
+        }
+    }
+
+    # Run orchestrator with diff mode
+    console.print()
+    console.print(f"[bold cyan]🎯 Starting security scan on {'changed' if not full else 'all'} endpoints...[/bold cyan]")
+    console.print()
+
+    from chaos_kitten.brain.orchestrator import Orchestrator
+
+    orchestrator = Orchestrator(app_config)
+    try:
+        import asyncio
+        results = asyncio.run(orchestrator.run())
+
+        # Check for orchestrator runtime errors
+        if isinstance(results, dict) and results.get("status") == "failed":
+            console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
+            raise typer.Exit(code=1)
+
+        # Handle --fail-on-critical (including pre-scan findings)
+        if fail_on_critical:
+            vulnerabilities = results.get("vulnerabilities", [])
+            critical_vulns = [
+                v for v in vulnerabilities 
+                if str(v.get("severity", "")).lower() == "critical"
+            ]
+            total_critical = len(critical_vulns) + len(critical_findings)
+            
+            if total_critical > 0:
+                console.print(f"[bold red]❌ Found {total_critical} critical issue(s). Failing pipeline.[/bold red]")
+                raise typer.Exit(code=1)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]❌ Diff scan failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def interactive():
     """Start interactive mode."""

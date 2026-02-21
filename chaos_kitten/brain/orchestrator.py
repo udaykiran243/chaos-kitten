@@ -67,11 +67,22 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, 
 
 
 
-def parse_openapi(state: AgentState) -> Dict[str, Any]:
+def parse_openapi(state: AgentState, app_config: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Parse OpenAPI spec or use pre-filtered diff endpoints."""
     try:
-        parser = OpenAPIParser(state["spec_path"])
-        parser.parse()
-        endpoints = parser.get_endpoints()
+        # Check if we're in diff mode with pre-computed delta endpoints
+        diff_mode = app_config.get("diff_mode", {}) if app_config else {}
+        
+        if diff_mode.get("enabled") and diff_mode.get("delta_endpoints"):
+            # Use delta endpoints from diff analysis
+            endpoints = diff_mode["delta_endpoints"]
+            console.print(f"[bold cyan]🔄 Diff mode: Testing {len(endpoints)} changed endpoints[/bold cyan]")
+        else:
+            # Normal mode: parse full spec
+            parser = OpenAPIParser(state["spec_path"])
+            parser.parse()
+            endpoints = parser.get_endpoints()
+            
     except Exception:
         logger.exception("Failed to parse OpenAPI spec")
         raise
@@ -206,7 +217,7 @@ class Orchestrator:
         workflow = StateGraph(AgentState)
 
         workflow.add_node("recon", partial(run_recon, app_config=self.config))
-        workflow.add_node("parse", parse_openapi)
+        workflow.add_node("parse", partial(parse_openapi, app_config=self.config))
         workflow.add_node("plan", plan_attacks)
         workflow.add_node(
             "execute_analyze", partial(execute_and_analyze, executor=executor)
@@ -296,20 +307,40 @@ class Orchestrator:
             output_format=reporter_cfg.get("format", "html"),
         )
 
+        # Add critical findings from diff mode if present
+        all_findings = final_state["findings"].copy()
+        diff_mode = self.config.get("diff_mode", {})
+        
+        if diff_mode.get("critical_findings"):
+            for critical in diff_mode["critical_findings"]:
+                all_findings.append({
+                    "type": "Security Regression",
+                    "title": f"Authentication Removed: {critical.method} {critical.path}",
+                    "description": critical.reason,
+                    "severity": "critical",
+                    "endpoint": critical.path,
+                    "method": critical.method,
+                    "evidence": " | ".join(critical.modifications or []),
+                    "payload": "N/A (Pre-scan finding)",
+                    "proof_of_concept": "Compare security requirements in old vs new OpenAPI spec",
+                    "remediation": "Restore authentication requirements before deploying to production.",
+                })
+
         report_file = reporter.generate(
-            {"vulnerabilities": final_state["findings"]}, target_url
+            {"vulnerabilities": all_findings}, target_url
         )
 
         console.print("\n[bold green]Scan Complete![/bold green]")
         console.print(
-            f"[bold cyan] Report generated:[/bold cyan] [underline]{report_file}[/underline]"
+            f"[bold cyan]📄 Report generated:[/bold cyan] [underline]{report_file}[/underline]"
         )
 
         return {
-            "vulnerabilities": final_state["findings"],
+            "vulnerabilities": all_findings,
             "summary": {
                 "total_endpoints": len(final_state["endpoints"]),
                 "tested_endpoints": final_state["current_endpoint"],
-                "vulnerabilities_found": len(final_state["findings"]),
+                "vulnerabilities_found": len(all_findings),
+                "diff_mode": diff_mode.get("enabled", False),
             },
         }
