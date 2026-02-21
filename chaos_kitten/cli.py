@@ -362,7 +362,10 @@ def diff(
     app_config = {
         "target": {
             "base_url": target,
-            "openapi_spec": new,  # Use new spec for testing
+            # In normal mode, this path is parsed by the orchestrator/OpenAPI parser.
+            # In diff mode, endpoints are provided via diff_mode['delta_endpoints'],
+            # so this is only used as a reference/logging handle to the *new* spec.
+            "openapi_spec": new,
         },
         "agent": {
             "llm_provider": "anthropic",
