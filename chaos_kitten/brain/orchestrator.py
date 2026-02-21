@@ -1,5 +1,6 @@
 """The Brain Orchestrator - Main agent logic using LangGraph."""
 
+import asyncio
 import json
 import logging
 from functools import partial
@@ -32,6 +33,7 @@ from chaos_kitten.brain.openapi_parser import OpenAPIParser
 from chaos_kitten.paws.analyzer import ResponseAnalyzer
 from chaos_kitten.litterbox.reporter import Reporter
 from chaos_kitten.paws.executor import Executor
+from chaos_kitten.brain.recon import ReconEngine
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -45,6 +47,29 @@ class AgentState(TypedDict):
     planned_attacks: List[Dict[str, Any]]
     results: List[Dict[str, Any]]
     findings: List[Dict[str, Any]]
+    recon_results: Dict[str, Any]
+
+
+async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
+    # Renamed to app_config to avoid LangGraph collision
+    console.print("[bold blue]🔍 Starting Reconnaissance Phase...[/bold blue]")
+    try:
+        engine = ReconEngine(app_config)
+        
+        # Run recon engine in an executor to avoid blocking the async loop
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(None, engine.run)
+
+        if results:
+            subs = len(results.get('subdomains', []))
+            techs = len(results.get('technologies', {}))
+            console.print(f"[green]Recon complete: Found {subs} subdomains and fingerprint info for {techs} targets[/green]")
+        return {"recon_results": results}
+    except Exception as e:
+        logger.exception("Reconnaissance failed")
+        console.print(f"[red]Reconnaissance failed: {e}[/red]")
+        return {"recon_results": {}}
+
 
 
 def parse_openapi(state: AgentState) -> Dict[str, Any]:
@@ -64,6 +89,10 @@ def plan_attacks(state: AgentState) -> Dict[str, Any]:
         return {"planned_attacks": []}
 
     endpoint = state["endpoints"][idx]
+    
+    # In future, we can inject recon data into the planner context here.
+    # For now, we trust the LLM to deduce context from the endpoint itself.
+    
     planner = AttackPlanner([endpoint])
     return {"planned_attacks": planner.plan_attacks(endpoint)}
 
@@ -265,13 +294,15 @@ class Orchestrator:
         from langgraph.graph import END, START, StateGraph
         workflow = StateGraph(AgentState)
 
+        workflow.add_node("recon", partial(run_recon, app_config=self.config))
         workflow.add_node("parse", parse_openapi)
         workflow.add_node("plan", plan_attacks)
         workflow.add_node(
             "execute_analyze", partial(execute_and_analyze, executor=executor, app_config=self.config)
         )
 
-        workflow.add_edge(START, "parse")
+        workflow.add_edge(START, "recon")
+        workflow.add_edge("recon", "parse")
         workflow.add_edge("parse", "plan")
         workflow.add_edge("plan", "execute_analyze")
 
