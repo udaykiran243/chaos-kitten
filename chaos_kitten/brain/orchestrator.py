@@ -264,8 +264,20 @@ class Orchestrator:
         Returns:
             Scan results including vulnerabilities found
         """
-        target_url = self.config.get("target", {}).get("base_url")
-        spec_path = self.config.get("target", {}).get("openapi_spec", "")
+        chaos_findings = []
+        
+        api_config = self.config.get("api", {}) or {}
+        target_config = self.config.get("target", {}) or {}
+
+        spec_path = (
+            (api_config.get("spec_path") if isinstance(api_config, dict) else None)
+            or self.config.get("spec", "")
+            or (target_config.get("openapi_spec") if isinstance(target_config, dict) else None)
+        )
+        target_url = (
+            target_config.get("base_url") if isinstance(target_config, dict) else target_config
+        ) or None
+
         if not target_url:
             raise ValueError("Target URL not configured")
             
@@ -365,7 +377,6 @@ class Orchestrator:
             self.vulnerabilities = []
 
         # Run chaos mode if enabled
-        chaos_findings = []
         if self.chaos:
             from chaos_kitten.brain.chaos_engine import ChaosEngine
             
