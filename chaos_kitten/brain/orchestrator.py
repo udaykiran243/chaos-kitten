@@ -72,17 +72,28 @@ def parse_openapi(state: AgentState, app_config: Dict[str, Any] = None) -> Dict[
     try:
         # Check if we're in diff mode with pre-computed delta endpoints
         diff_mode = app_config.get("diff_mode", {}) if app_config else {}
-        
-        if diff_mode.get("enabled") and diff_mode.get("delta_endpoints"):
-            # Use delta endpoints from diff analysis
-            endpoints = diff_mode["delta_endpoints"]
-            console.print(f"[bold cyan]🔄 Diff mode: Testing {len(endpoints)} changed endpoints[/bold cyan]")
+
+        if diff_mode.get("enabled"):
+            delta_endpoints = diff_mode.get("delta_endpoints") or []
+            if delta_endpoints:
+                # Use delta endpoints from diff analysis
+                endpoints = delta_endpoints
+                console.print(f"[bold cyan]🔄 Diff mode: Testing {len(endpoints)} changed endpoints[/bold cyan]")
+            else:
+                # Diff mode enabled but no delta endpoints provided/found
+                logger.warning(
+                    "Diff mode is enabled but no delta_endpoints were provided; "
+                    "no endpoints will be tested."
+                )
+                console.print(
+                    "[bold yellow]⚠ Diff mode enabled but no changed endpoints found/provided; skipping tests.[/bold yellow]"
+                )
+                endpoints = []
         else:
             # Normal mode: parse full spec
             parser = OpenAPIParser(state["spec_path"])
             parser.parse()
             endpoints = parser.get_endpoints()
-            
     except Exception:
         logger.exception("Failed to parse OpenAPI spec")
         raise
