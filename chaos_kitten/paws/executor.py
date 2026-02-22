@@ -57,12 +57,12 @@ class Executor:
     
     async def __aenter__(self) -> "Executor":
         """Context manager entry."""
-        self._rate_limiter = asyncio.Semaphore(self.rate_limit)
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout,
             headers=self._build_headers(),
         )
+        self._rate_limiter = asyncio.Semaphore(self.rate_limit)
         return self
     
     async def __aexit__(self, *args: Any) -> None:
