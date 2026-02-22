@@ -175,16 +175,17 @@ def install_toy(
             try:
                 validator = AttackProfileValidator()
                 report = validator.validate_profile(str(temp_path))
-                if not report.is_valid:
-                    console.print("[red]Schema validation failed:[/red]")
-                    for err in report.errors:
-                        console.print(f"  - {err}")
-                    temp_path.unlink()
-                    raise Exit(code=1)
             except Exception as e:
                 console.print(f"[red]Validation error: {e}[/red]")
                 if temp_path.exists():
                     temp_path.unlink()
+                raise Exit(code=1) from e
+
+            if not report.is_valid:
+                console.print("[red]Schema validation failed:[/red]")
+                for err in report.errors:
+                    console.print(f"  - {err}")
+                temp_path.unlink()
                 raise Exit(code=1)
 
             # Atomically move temp file to final destination

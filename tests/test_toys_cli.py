@@ -122,7 +122,7 @@ phases:
         assert (temp_toys_dir / "test-toy.yaml").exists()
 
 @patch("urllib.request.urlopen")
-    def test_toys_install_allows_payload_content(mock_urlopen, mock_fetch_registry, temp_toys_dir):
+def test_toys_install_allows_payload_content(mock_urlopen, mock_fetch_registry, temp_toys_dir):
     # Mock the response for downloading the profile
     mock_response = MagicMock()
     mock_response.status = 200
