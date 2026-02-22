@@ -123,7 +123,7 @@ You can then configure the MFA parameters within the `auth` block of your `chaos
 ```yaml
 target:
   auth:
-    totp_secret: "JBSWY3DPEHPK3PXP" # The base32 secret used to generate the 6-digit code
+    totp_secret: "YOUR_BASE32_SECRET_HERE" # The base32 secret used to generate the 6-digit code
     totp_endpoint: "/api/mfa" # The endpoint to POST the code to
     totp_field: "code" # The JSON field name to place the code into (defaults to "code")
 ```
