@@ -79,6 +79,12 @@ class Executor:
         """Context manager exit."""
         if self._client:
             await self._client.aclose()
+        
+        # Close file handler to prevent resource leak
+        if self.enable_logging and self.log_file:
+            for handler in self._logger.handlers[:]:
+                handler.close()
+                self._logger.removeHandler(handler)
     
     def _build_headers(self) -> Dict[str, str]:
         """Build request headers including authentication."""
@@ -133,15 +139,13 @@ class Executor:
         # Prepare request parameters
         method = method.upper()
         start_time = time.perf_counter()
-        request_timestamp = datetime.now()
         
-        # Log request
+        # Log request (timestamp created inside if logging enabled)
         self._log_request(
             method=method,
             path=path,
             headers=request_headers,
             payload=payload or graphql_query,
-            timestamp=request_timestamp,
         )
         
         try:
@@ -328,12 +332,11 @@ class Executor:
         if not self.enable_logging:
             return
         
-        # Use a shared logger name to avoid accumulation in global registry
-        self._logger = logging.getLogger(f"{__name__}.executor")
+        # Use per-instance logger name to avoid handler corruption
+        self._logger = logging.getLogger(f"{__name__}.executor.{id(self)}")
         self._logger.setLevel(logging.DEBUG)
         
-        # Remove existing handlers to avoid duplicates
-        self._logger.handlers.clear()
+        # Fresh logger has no handlers; no need to clear
         
         # Console handler for DEBUG and above
         console_handler = logging.StreamHandler()
@@ -384,10 +387,10 @@ class Executor:
         """
         # Common patterns for API keys in query params
         patterns = [
-            (r'([?&])(api[-_]?key|apikey|key)=([^&]*)', r'\1\2=[REDACTED]'),
-            (r'([?&])(token|access[-_]?token)=([^&]*)', r'\1\2=[REDACTED]'),
-            (r'([?&])(auth|authorization)=([^&]*)', r'\1\2=[REDACTED]'),
-            (r'([?&])(secret|password|pwd)=([^&]*)', r'\1\2=[REDACTED]'),
+            (r'([?&])(api[-_]?key|apikey)=([^&#]*)', r'\1\2=[REDACTED]'),
+            (r'([?&])(token|access[-_]?token)=([^&#]*)', r'\1\2=[REDACTED]'),
+            (r'([?&])(auth|authorization)=([^&#]*)', r'\1\2=[REDACTED]'),
+            (r'([?&])(secret|password|pwd)=([^&#]*)', r'\1\2=[REDACTED]'),
         ]
         
         redacted_url = url
@@ -416,7 +419,6 @@ class Executor:
         path: str,
         headers: Dict[str, str],
         payload: Optional[Any] = None,
-        timestamp: Optional[datetime] = None,
     ) -> None:
         """Log HTTP request details.
         
@@ -425,12 +427,11 @@ class Executor:
             path: Request path
             headers: Request headers
             payload: Request body/payload
-            timestamp: Request timestamp
         """
         if not self.enable_logging:
             return
         
-        ts = timestamp or datetime.now()
+        ts = datetime.now()
         full_url = f"{self.base_url}{path}"
         redacted_url = self._redact_query_params(full_url)
         redacted_headers = self._redact_sensitive_data(headers)
