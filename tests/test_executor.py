@@ -372,7 +372,7 @@ async def test_logging_truncates_large_request_body(base_url, caplog):
 async def test_logging_full_body_for_errors(base_url, caplog):
     """Test that full response body is logged for errors."""
     import logging
-    caplog.set_level(logging.ERROR)
+    caplog.set_level(logging.WARNING)
     
     error_body = "Detailed error message with stack trace"
     
@@ -384,7 +384,7 @@ async def test_logging_full_body_for_errors(base_url, caplog):
             
             # Check that error details are logged
             log_messages = [record.message for record in caplog.records]
-            # Error responses should include full body
+            # HTTP error responses (4xx/5xx) should include full body at WARNING level
             assert any(error_body in msg for msg in log_messages)
 
 

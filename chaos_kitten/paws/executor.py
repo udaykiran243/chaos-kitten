@@ -328,8 +328,8 @@ class Executor:
         if not self.enable_logging:
             return
         
-        # Create a dedicated logger for this executor instance
-        self._logger = logging.getLogger(f"{__name__}.{id(self)}")
+        # Use a shared logger name to avoid accumulation in global registry
+        self._logger = logging.getLogger(f"{__name__}.executor")
         self._logger.setLevel(logging.DEBUG)
         
         # Remove existing handlers to avoid duplicates
@@ -351,9 +351,6 @@ class Executor:
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(console_formatter)
             self._logger.addHandler(file_handler)
-        
-        # Prevent propagation to avoid duplicate logs
-        self._logger.propagate = False
     
     def _redact_sensitive_data(self, headers: Dict[str, str]) -> Dict[str, str]:
         """Redact sensitive information from headers.
@@ -474,8 +471,9 @@ class Executor:
             self._logger.error(
                 f"RESPONSE [ERROR] Status: {status_code}, Time: {elapsed_ms:.2f}ms, Error: {error}"
             )
-            # Log full body for errors
-            self._logger.error(f"Response Body: {body}")
+            # Log full body for Python exceptions (if body exists)
+            if body:
+                self._logger.error(f"Response Body: {body}")
         else:
             log_level = logging.INFO if 200 <= status_code < 300 else logging.WARNING
             self._logger.log(
@@ -484,9 +482,13 @@ class Executor:
             )
             self._logger.debug(f"Response Headers: {redacted_headers}")
             
-            # Truncate body for non-errors
-            truncated_body = self._truncate_body(body, max_chars=500)
-            self._logger.debug(f"Response Body: {truncated_body}")
+            # For 2xx: truncate body; for 4xx/5xx: log full body at WARNING
+            if 200 <= status_code < 300:
+                truncated_body = self._truncate_body(body, max_chars=500)
+                self._logger.debug(f"Response Body: {truncated_body}")
+            else:
+                # Log full body for HTTP error responses (4xx/5xx)
+                self._logger.log(log_level, f"Response Body: {body}")
     
     async def _apply_rate_limit(self) -> None:
         """Apply rate limiting using token bucket algorithm."""
