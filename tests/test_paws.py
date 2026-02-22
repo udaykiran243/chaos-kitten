@@ -306,7 +306,7 @@ class TestExecutor:
         base_url = "http://test.com"
         
         # A valid base32 string for pyotp
-        secret = "JBSWY3DPEHPK3PXP"
+        secret = "TESTSECRET32CHARACTERLONGSTRINGX"
         
         route = respx.post(totp_endpoint).respond(status_code=200)
         
