@@ -1,14 +1,16 @@
 """Chaos Kitten CLI - Command Line Interface."""
-
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from chaos_kitten.brain.cors import analyze_cors
 
 app = typer.Typer(
     name="chaos-kitten",
     help="🐱 Chaos Kitten - The adorable AI agent that knocks things off your API tables",
     add_completion=False,
 )
+
+
 console = Console()
 
 ASCII_CAT = r"""
@@ -109,12 +111,17 @@ def scan(
         None,
         "--format",
         "-f",
-        help="Format of the report (html, markdown, json, sarif)",
+        help="Format of the report (html, markdown, json, sarif, junit)",
     ),
-    fail_on_critical: bool = typer.Option(
+    fail_on: str = typer.Option(
+        "none",
+        "--fail-on",
+        help="Exit with code 1 if severity >= level (none, low, medium, high, critical)",
+    ),
+    silent: bool = typer.Option(
         False,
-        "--fail-on-critical",
-        help="Exit with code 1 if critical vulnerabilities found",
+        "--silent",
+        help="Suppress console output except errors (useful for CI)",
     ),
     provider: str = typer.Option(
         None,
@@ -135,16 +142,20 @@ def scan(
     ),
 ):
     """Scan an API for security vulnerabilities."""
-    console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten", border_style="magenta"))
-    console.print()
+    if not silent:
+        console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten", border_style="magenta"))
+        console.print()
 
     if demo:
-        console.print("[bold cyan]🎮 Running in DEMO mode![/bold cyan]")
+        if not silent:
+            console.print("[bold cyan]🎮 Running in DEMO mode![/bold cyan]")
         target = target or "http://localhost:5000"
         spec = spec or "examples/sample_openapi.json"
-        console.print(f"🎯 Target: {target}")
-        console.print(f"📋 Spec: {spec}")
-        console.print()
+        
+        if not silent:
+            console.print(f"🎯 Target: {target}")
+            console.print(f"📋 Spec: {spec}")
+            console.print()
 
     # Check for API keys if using LLM providers
     import os
@@ -204,9 +215,22 @@ def scan(
     from chaos_kitten.brain.orchestrator import Orchestrator
     orchestrator = Orchestrator(app_config, resume=resume)
     try:
+        if not silent:
+            console.print("[bold green]🚀 Launching Chaos Kitten...[/bold green]")
+        
         import asyncio
         results = asyncio.run(orchestrator.run())
-
+        if cors and target_url:
+            import httpx, asyncio
+            async def _cors_probe():
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(target_url, headers={"Origin": "https://evil.example"})
+                    return dict(resp.headers)
+            probe_headers = asyncio.run(_cors_probe())
+            cors_findings = analyze_cors({k.lower(): v for k, v in probe_headers.items()})
+            for f in cors_findings:
+                console.print(f"[bold yellow][CORS][/bold yellow] {f['severity'].upper()} - {f['issue']}")
+        
         # Check for orchestrator runtime errors
         if isinstance(results, dict) and results.get("status") == "failed":
             console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
@@ -229,6 +253,8 @@ def scan(
             if critical_vulns:
                 console.print(f"[bold red]❌ Found {len(critical_vulns)} critical vulnerabilities. Failing pipeline.[/bold red]")
                 raise typer.Exit(code=1)
+            elif not silent:
+                console.print("[bold green]✅ No vulnerabilities found exceeding the failure threshold.[/bold green]")
 
     except typer.Exit:
         raise

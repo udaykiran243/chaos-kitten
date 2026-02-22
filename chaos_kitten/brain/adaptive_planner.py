@@ -24,7 +24,7 @@ Focus on:
 3. Context: potential implementation details leaked in the response.
 
 Return ONLY a JSON array of 5 payload strings. Example:
-["{\\"price\\": -100}", "{\\"amount\\": 0}", "'; DROP TABLE--", "<script>alert(1)</script>", "' OR '1'='1"]
+["{\"price\": -100}", "{\"quantity\": 0}"]
 """
 
 

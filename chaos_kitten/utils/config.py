@@ -91,8 +91,8 @@ class Config:
         adaptive = self._config.get("adaptive", {})
         if "max_rounds" in adaptive:
             max_rounds = adaptive["max_rounds"]
-            if not isinstance(max_rounds, int) or max_rounds < 1:
-                raise ValueError("adaptive.max_rounds must be a positive integer")
+            if not isinstance(max_rounds, int) or max_rounds < 1 or max_rounds > 10:
+                raise ValueError("adaptive.max_rounds must be an integer between 1 and 10")
     
     @property
     def target(self) -> Dict[str, Any]:
