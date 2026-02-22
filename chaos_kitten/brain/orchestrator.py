@@ -601,3 +601,13 @@ class Orchestrator:
                 "vulnerabilities_found": len(self.vulnerabilities),
             },
         }
+
+        # Always generate report, even if attacks failed
+        try:
+            report_output = self.config.get("report_output", "report.html")
+            self.reporter.generate(results, report_output)
+            console.print(f"\u2705 [green]Report saved to:[/green] [cyan]{report_output}[/cyan]")
+        except Exception as e:
+            logger.error("Failed to generate report: %s", e)
+
+        return results

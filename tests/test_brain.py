@@ -61,7 +61,7 @@ class TestOrchestrator:
         executor_instance.execute_attack.return_value = {
             "status_code": 500,
             "response_body": "SQL Syntax Error",
-            "duration": 0.1,
+            "elapsed_ms": 100.0,
             "headers": {},
             "url": "http://test.com/users"
         }

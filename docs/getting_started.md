@@ -102,21 +102,40 @@ ANTHROPIC_API_KEY=your_key_here
 chaos-kitten scan
 ```
 
-### 5. Resuming an Interrupted Scan
+### 5. Chaos Mode (Negative Testing)
 
-If a long-running scan is interrupted (e.g., due to network issues or accidental closure), you can resume it from the last checkpoint:
+Chaos Mode goes beyond known attack signatures by generating structurally invalid inputs to discover unknown crashes, 500 errors, and hidden behaviors.
 
 ```bash
-chaos-kitten scan --resume
+# Enable chaos mode alongside normal scanning
+chaos-kitten scan --chaos --target http://localhost:5000
+
+# Adjust chaos intensity (1 = gentle, 5 = maximum carnage)
+chaos-kitten scan --chaos --chaos-level 5 --target http://localhost:5000
 ```
 
-This will:
-- Load the last saved state from `.chaos-checkpoint.json`
-- Skip already completed attack profiles
-- Continue finding vulnerabilities where it left off
+Chaos Mode tests for:
+- **Wrong types:** Sending strings where integers are expected, arrays instead of objects, etc.
+- **Boundary extremes:** Int32 min/max, float overflow (1e308), very long strings (100K chars)
+- **Null and missing:** Null bytes, null values, missing required fields
+- **Unicode edge cases:** Zero-width chars, direction overrides, emoji floods, unpaired surrogates
+- **Header mutations:** Missing Content-Type, XML Content-Type (for XXE), mismatched Content-Length
 
-> **Note:** Checkpoints are automatically invalidated if you change the configuration between runs.
+Example findings unique to Chaos Mode:
+```
+[CHAOS] server_error on POST /api/users — Null value
+[CHAOS] response_time_outlier on POST /api/products — Very long string (100K)
+[CHAOS] information_leak on POST /api/orders — Float overflow boundary
+```
 
+Chaos levels:
+| Level | Mode | Description |
+|-------|------|-------------|
+| 1 | Gentle | Basic type mismatches |
+| 2 | Moderate | Boundary values + nulls |
+| 3 | Aggressive | Unicode + control chars + large inputs |
+| 4 | Destructive | Overflow + injection + nested attacks |
+| 5 | Maximum Carnage | Everything at once |
 
 ## Understanding Results
 
