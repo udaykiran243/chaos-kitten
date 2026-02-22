@@ -1,5 +1,10 @@
 """HTTP Executor - Async HTTP client for executing attacks."""
 
+try:
+    import pyotp
+except ImportError:
+    pyotp = None
+
 import asyncio
 import logging
 import time
@@ -29,6 +34,10 @@ class Executor:
         auth_token: Optional[str] = None,
         rate_limit: int = 10,
         timeout: int = 30,
+        # New MFA fields
+        totp_secret: Optional[str] = None,
+        totp_endpoint: Optional[str] = None,
+        totp_field: str = "code",
     ) -> None:
         """Initialize the executor.
         
@@ -54,6 +63,9 @@ class Executor:
         self._client: Optional[httpx.AsyncClient] = None
         self._rate_limiter: Optional[asyncio.Semaphore] = None
         self._last_request_time: float = 0.0
+        self.totp_secret = totp_secret
+        self.totp_endpoint = totp_endpoint
+        self.totp_field = totp_field
     
     async def __aenter__(self) -> "Executor":
         """Context manager entry."""
@@ -62,6 +74,9 @@ class Executor:
             timeout=self.timeout,
             headers=self._build_headers(),
         )
+        
+        await self._perform_mfa_auth()
+        
         # Initialize rate limiter semaphore
         self._rate_limiter = asyncio.Semaphore(self.rate_limit)
         return self
@@ -265,3 +280,46 @@ class Executor:
             
             # Update last request time
             self._last_request_time = time.perf_counter()
+
+    def _generate_totp(self) -> Optional[str]:
+        """Generate a 6-digit TOTP code if secret is available.
+        
+        Returns:
+            A 6-digit string code or None if pyotp is not installed or secret is missing.
+        """
+        if not self.totp_secret:
+            return None
+            
+        if pyotp is None:
+            logger.warning("pyotp is not installed. Cannot generate MFA code.")
+            return None
+            
+        try:
+            totp = pyotp.TOTP(self.totp_secret)
+            return totp.now()
+        except Exception as e:
+            logger.warning(f"Failed to generate TOTP code: {e}")
+            return None
+
+    async def _perform_mfa_auth(self) -> None:
+        """Perform Multi-Factor Authentication if credentials are provided."""
+        if not self.totp_endpoint:
+            return
+            
+        code = self._generate_totp()
+        if not code:
+            return
+            
+        if not self._client:
+            logger.warning("HTTP client not initialized before MFA authentication.")
+            return
+
+        payload = {self.totp_field: code}
+        try:
+            response = await self._client.post(self.totp_endpoint, json=payload)
+            if response.status_code >= 200 and response.status_code < 300:
+                logger.info(f"MFA authentication successful. Status code: {response.status_code}")
+            else:
+                logger.warning(f"MFA authentication failed. Status code: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Error during MFA authentication: {e}")

@@ -39,6 +39,10 @@ target:
   auth:
     type: "bearer"  # bearer, basic, none
     token: "${API_TOKEN}"
+    # MFA/TOTP Support (Requires 'mfa' extra: pip install .[mfa])
+    totp_secret: ""
+    totp_endpoint: ""
+    totp_field: "code"
 
 agent:
   llm_provider: "anthropic"  # anthropic, openai, ollama

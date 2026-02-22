@@ -51,11 +51,13 @@ docker-compose run chaos-kitten scan --demo
 **Using Standalone Docker**
 
 Build the image:
+
 ```bash
 docker build -t chaos-kitten .
 ```
 
 Run a scan (mounting your current directory for config and reports):
+
 ```bash
 docker run --rm \
   -v $(pwd)/chaos-kitten.yaml:/app/chaos-kitten.yaml \
@@ -80,8 +82,8 @@ Open `chaos-kitten.yaml` and update:
 
 ```yaml
 target:
-  base_url: "http://localhost:3000"  # Your API URL
-  openapi_spec: "./openapi.json"      # Path to OpenAPI spec
+  base_url: "http://localhost:3000" # Your API URL
+  openapi_spec: "./openapi.json" # Path to OpenAPI spec
 
 agent:
   llm_provider: "anthropic"
@@ -102,16 +104,40 @@ ANTHROPIC_API_KEY=your_key_here
 chaos-kitten scan
 ```
 
+## Authentication
+
+### MFA/TOTP Support
+
+Chaos Kitten supports bypassing basic MFA flows out-of-the-box by automatically generating and submitting a TOTP token (e.g., Google Authenticator, Microsoft Authenticator) ahead of the rate limiter checks.
+
+To enable this feature, you must first install the `mfa` extra:
+
+```bash
+pip install .[mfa]
+# Alternatively, you can directly install the library:
+# pip install pyotp
+```
+
+You can then configure the MFA parameters within the `auth` block of your `chaos-kitten.yaml` configuration file:
+
+```yaml
+target:
+  auth:
+    totp_secret: "JBSWY3DPEHPK3PXP" # The base32 secret used to generate the 6-digit code
+    totp_endpoint: "/api/mfa" # The endpoint to POST the code to
+    totp_field: "code" # The JSON field name to place the code into (defaults to "code")
+```
+
 ## Understanding Results
 
 ### Severity Levels
 
-| Level | Color | Description |
-|-------|-------|-------------|
-| CRITICAL | 🔴 | Immediate action required |
-| HIGH | 🟠 | Should be fixed soon |
-| MEDIUM | 🟡 | Should be addressed |
-| LOW | 🟢 | Minor issues |
+| Level    | Color | Description               |
+| -------- | ----- | ------------------------- |
+| CRITICAL | 🔴    | Immediate action required |
+| HIGH     | 🟠    | Should be fixed soon      |
+| MEDIUM   | 🟡    | Should be addressed       |
+| LOW      | 🟢    | Minor issues              |
 
 ### Sample Output
 
