@@ -1,14 +1,16 @@
 """Chaos Kitten CLI - Command Line Interface."""
-
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from chaos_kitten.brain.cors import analyze_cors
 
 app = typer.Typer(
     name="chaos-kitten",
     help="🐱 Chaos Kitten - The adorable AI agent that knocks things off your API tables",
     add_completion=False,
 )
+
+
 console = Console()
 
 ASCII_CAT = r"""
@@ -132,6 +134,16 @@ def scan(
         "--demo",
         help="Run scan against the demo vulnerable API",
     ),
+    cors: bool = typer.Option(
+    False,
+    "--cors",
+    help="Run CORS misconfiguration scan",
+    ),
+    goal: str = typer.Option(
+    None,
+    "--goal",
+    "-g",
+    help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
     goal: str = typer.Option(
         None,
         "--goal",
@@ -218,6 +230,10 @@ def scan(
 
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
+    target_url = (
+    app_config.get("target", {}).get("base_url")
+    or app_config.get("api", {}).get("base_url")
+    )
     orchestrator = Orchestrator(app_config)
     try:
         if not silent:
@@ -225,7 +241,17 @@ def scan(
         
         import asyncio
         results = asyncio.run(orchestrator.run())
-
+        if cors and target_url:
+            import httpx, asyncio
+            async def _cors_probe():
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(target_url, headers={"Origin": "https://evil.example"})
+                    return dict(resp.headers)
+            probe_headers = asyncio.run(_cors_probe())
+            cors_findings = analyze_cors({k.lower(): v for k, v in probe_headers.items()})
+            for f in cors_findings:
+                console.print(f"[bold yellow][CORS][/bold yellow] {f['severity'].upper()} - {f['issue']}")
+        
         # Check for orchestrator runtime errors
         if isinstance(results, dict) and results.get("status") == "failed":
             console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
