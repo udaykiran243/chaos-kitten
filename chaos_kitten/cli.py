@@ -204,11 +204,14 @@ def scan(
 
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
+    target_url = (
+    app_config.get("target", {}).get("base_url")
+    or app_config.get("api", {}).get("base_url")
+    )
     orchestrator = Orchestrator(app_config)
     try:
         import asyncio
         results = asyncio.run(orchestrator.run())
-        
         if cors and target_url:
             import httpx, asyncio
             async def _cors_probe():
@@ -219,20 +222,7 @@ def scan(
             cors_findings = analyze_cors({k.lower(): v for k, v in probe_headers.items()})
             for f in cors_findings:
                 console.print(f"[bold yellow][CORS][/bold yellow] {f['severity'].upper()} - {f['issue']}")
-            
-            if headers:
-                cors_findings = analyze_cors(
-                    {k.lower(): v for k, v in headers.items()}
-                    )
-                
-                for f in cors_findings:
-                    console.print(
-                        f"[bold yellow][CORS][/bold yellow] "
-                        f"{f['severity'].upper()} - {f['issue']}"
-                        )
-            else:
-                console.print("[dim]No response headers available for CORS scan.[/dim]")
-
+        
         # Check for orchestrator runtime errors
         if isinstance(results, dict) and results.get("status") == "failed":
             console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
