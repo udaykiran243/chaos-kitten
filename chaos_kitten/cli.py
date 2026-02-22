@@ -137,15 +137,10 @@ def scan(
         help="Run scan against the demo vulnerable API",
     ),
     cors: bool = typer.Option(
-    False,
-    "--cors",
-    help="Run CORS misconfiguration scan",
+        False,
+        "--cors",
+        help="Run CORS misconfiguration scan",
     ),
-    goal: str = typer.Option(
-    None,
-    "--goal",
-    "-g",
-    help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
     goal: str = typer.Option(
         None,
         "--goal",
