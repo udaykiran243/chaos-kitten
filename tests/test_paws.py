@@ -301,6 +301,7 @@ class TestExecutor:
     @respx.mock
     async def test_mfa_success(self):
         """Test Case 1: Verify code is generated and POST request is sent."""
+        pytest.importorskip("pyotp")
         totp_endpoint = "http://test.com/api/mfa"
         base_url = "http://test.com"
         
@@ -334,6 +335,7 @@ class TestExecutor:
     @respx.mock
     async def test_mfa_custom_field(self):
         """Test Case 2: Verify custom totp_field ("otp") changes the JSON payload."""
+        pytest.importorskip("pyotp")
         totp_endpoint = "http://test.com/api/mfa"
         base_url = "http://test.com"
         secret = "JBSWY3DPEHPK3PXP"
@@ -384,6 +386,7 @@ class TestExecutor:
     @respx.mock
     async def test_mfa_auth_failure(self, caplog):
         """Test Case 4: Verify warnings logged but no crash on 401."""
+        pytest.importorskip("pyotp")
         import logging
         caplog.set_level(logging.WARNING)
         

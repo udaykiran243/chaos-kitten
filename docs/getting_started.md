@@ -104,29 +104,6 @@ ANTHROPIC_API_KEY=your_key_here
 chaos-kitten scan
 ```
 
-## Authentication
-
-### MFA/TOTP Support
-
-Chaos Kitten supports bypassing basic MFA flows out-of-the-box by automatically generating and submitting a TOTP token (e.g., Google Authenticator, Microsoft Authenticator) ahead of the rate limiter checks.
-
-To enable this feature, you must first install the `mfa` extra:
-
-```bash
-pip install .[mfa]
-# Alternatively, you can directly install the library:
-# pip install pyotp
-```
-
-You can then configure the MFA parameters within the `auth` block of your `chaos-kitten.yaml` configuration file:
-
-```yaml
-target:
-  auth:
-    totp_secret: "YOUR_BASE32_SECRET_HERE" # The base32 secret used to generate the 6-digit code
-    totp_endpoint: "/api/mfa" # The endpoint to POST the code to
-    totp_field: "code" # The JSON field name to place the code into (defaults to "code")
-```
 
 ### 5. Use Natural Language Targeting (Optional)
 
@@ -148,6 +125,30 @@ chaos-kitten scan --goal "test the authentication system for account takeover ri
 ```
 
 Without `--goal`, Chaos Kitten runs a full scan testing all endpoints. With `--goal`, the LLM prioritizes endpoints relevant to your security concern.
+
+## Authentication
+
+### MFA/TOTP Support
+
+Chaos Kitten supports bypassing basic MFA flows out-of-the-box by automatically generating and submitting a TOTP token (e.g., Google Authenticator, Microsoft Authenticator) during the authentication phase, enabling testing of MFA-protected APIs without manual code entry.
+
+To enable this feature, you must first install the `mfa` extra:
+
+```bash
+pip install .[mfa]
+# Alternatively, you can directly install the library:
+# pip install pyotp
+```
+
+You can then configure the MFA parameters within the `auth` block of your `chaos-kitten.yaml` configuration file:
+
+```yaml
+target:
+  auth:
+    totp_secret: "YOUR_BASE32_SECRET_HERE" # The base32 secret used to generate the 6-digit code
+    totp_endpoint: "/api/mfa" # The endpoint to POST the code to
+    totp_field: "code" # The JSON field name to place the code into (defaults to "code")
+```
 
 ## Understanding Results
 

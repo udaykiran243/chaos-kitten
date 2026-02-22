@@ -83,7 +83,7 @@ class Config:
                 raise ValueError("Missing required field: target.base_url")
 
         # --- MFA/TOTP Validation & Defaults ---
-        auth = self._config.setdefault("auth", {})
+        auth = self._config.get("target", {}).setdefault("auth", {})
         # totp_secret and totp_endpoint are optional, but totp_field needs a default
         if "totp_field" not in auth:
             auth["totp_field"] = "code"  # Default value as per requirement
@@ -125,7 +125,7 @@ class Config:
     @property
     def auth(self) -> Dict[str, Any]:
         """Get authentication configuration including TOTP fields."""
-        return self._config.get("auth", {})
+        return self._config.get("target", {}).get("auth", {})
     
     @property
     def adaptive(self) -> Dict[str, Any]:

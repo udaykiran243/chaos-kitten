@@ -86,7 +86,7 @@ async def test_orchestrator_adaptive_integration():
     
     # We mock AdaptivePayloadGenerator to return controlled payloads
     # and we patch sys.modules to simulate langchain_anthropic existence
-    with patch.dict("sys.modules", {"langchain_anthropic": MagicMock()}):
+    with patch.dict(sys.modules, {"langchain_anthropic": MagicMock()}):
         with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen:
              mock_gen_instance = MockGen.return_value
              mock_gen_instance.generate_payloads = AsyncMock(return_value=['{"p": 1}', '{"p": 2}'])
@@ -119,7 +119,7 @@ async def test_orchestrator_adaptive_max_rounds():
         }
     }
     
-    with patch.dict("sys.modules", {"langchain_anthropic": MagicMock()}):
+    with patch.dict(sys.modules, {"langchain_anthropic": MagicMock()}):
         with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen:
             
             mock_gen_instance = MockGen.return_value
