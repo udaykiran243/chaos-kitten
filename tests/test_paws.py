@@ -306,7 +306,7 @@ class TestExecutor:
         base_url = "http://test.com"
         
         # A valid base32 string for pyotp
-        secret = "TESTSECRET32CHARACTERLONGSTRINGX"
+        secret = "KITTEN_TEST_SECRET_MFA_B32_ABCDEF"
         
         route = respx.post(totp_endpoint).respond(status_code=200)
         
@@ -338,7 +338,7 @@ class TestExecutor:
         pytest.importorskip("pyotp")
         totp_endpoint = "http://test.com/api/mfa"
         base_url = "http://test.com"
-        secret = "JBSWY3DPEHPK3PXP"
+        secret = "KITTEN_TEST_SECRET_MFA_B32_ABCDEF"
         
         route = respx.post(totp_endpoint).respond(status_code=200)
         
@@ -392,7 +392,7 @@ class TestExecutor:
         
         totp_endpoint = "http://test.com/api/mfa"
         base_url = "http://test.com"
-        secret = "JBSWY3DPEHPK3PXP"
+        secret = "KITTEN_TEST_SECRET_MFA_B32_ABCDEF"
         
         route = respx.post(totp_endpoint).respond(status_code=401)
         
@@ -416,7 +416,7 @@ class TestExecutor:
     async def test_mfa_no_endpoint(self):
         """Test Case 5: Verify fast skip if secret is provided but no endpoint."""
         base_url = "http://test.com"
-        secret = "JBSWY3DPEHPK3PXP"
+        secret = "KITTEN_TEST_SECRET_MFA_B32_ABCDEF"
         
         route = respx.post("http://test.com/api/mfa").respond(status_code=200)
         
