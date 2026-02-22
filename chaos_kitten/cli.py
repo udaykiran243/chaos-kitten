@@ -169,6 +169,7 @@ def scan(
     
     try:
         from chaos_kitten.brain.orchestrator import Orchestrator
+        from chaos_kitten.litterbox.reporter import Reporter
         import asyncio
         
         # Load config or use defaults
@@ -212,8 +213,21 @@ def scan(
         else:
             console.print("\n[bold green]✅ No vulnerabilities found. Your API is a tough kitten![/bold green]")
 
-        # Generate report (mock for now)
-        console.print(f"\n📝 Generating {format} report in {output}...")
+        # Generate report
+        reporter_cfg = cfg.get("reporting", {})
+        reporter = Reporter(
+            output_path=reporter_cfg.get("output_path", "./reports"),
+            output_format=reporter_cfg.get("format", "html"),
+        )
+        report_file = reporter.generate({"vulnerabilities": vulnerabilities}, target_url)
+        console.print(f"\n📄 Report: [underline]{report_file}[/underline]")
+        
+        # Enforce fail-on-critical
+        if fail_on_critical:
+            critical_vulns = [v for v in vulnerabilities if str(v.get("severity", "")).lower() == "critical"]
+            if critical_vulns:
+                console.print(f"[bold red]❌ {len(critical_vulns)} critical vulnerabilities. Failing pipeline.[/bold red]")
+                raise typer.Exit(code=1)
         
     except Exception as e:
         console.print(f"[bold red]💥 Error:[/bold red] {str(e)}")
