@@ -55,13 +55,18 @@ class EndpointGraph:
                         producers[prop_name.lower()].append(i)
                         
         # Create edges from producers to consumers
+        # Use a set to avoid duplicate edges if multiple fields map between the same endpoints
+        seen_edges = set()
         for field, prod_list in producers.items():
             if field in consumers:
                 for p in prod_list:
                     for c in consumers[field]:
                         if p != c:
-                            # Add edge p -> c with the shared field
-                            self.graph[p].append({"target": c, "field": field})
+                            edge_key = (p, c, field)
+                            if edge_key not in seen_edges:
+                                seen_edges.add(edge_key)
+                                # Add edge p -> c with the shared field
+                                self.graph[p].append({"target": c, "field": field})
 
     def get_graph_summary(self) -> str:
         """Return a string summary of the graph for the LLM."""
@@ -167,44 +172,65 @@ class ChainExecutor:
         """Execute a chain of attacks."""
         variables = {}
         results = []
+        errors = []
         
-        for step in chain.get("steps", []):
-            method = step.get("method")
-            path = step.get("path")
-            
-            # Substitute variables in path
-            for var_name, var_value in variables.items():
-                path = path.replace(f"{{{var_name}}}", str(var_value))
+        for i, step in enumerate(chain.get("steps", [])):
+            try:
+                method = step.get("method")
+                path = step.get("path")
                 
-            # Prepare payload with injected variables
-            payload = {}
-            for var_name, field_name in step.get("injects", {}).items():
-                if var_name in variables:
-                    payload[field_name] = variables[var_name]
+                # Substitute variables in path
+                for var_name, var_value in variables.items():
+                    path = path.replace(f"{{{var_name}}}", str(var_value))
                     
-            # Execute attack
-            response = await self.executor.execute_attack(method, path, payload)
-            
-            # Extract variables from response
-            body = response.get("body", {})
-            if isinstance(body, str):
-                try:
-                    body = json.loads(body)
-                except json.JSONDecodeError:
-                    body = {}
+                # Prepend base_url if path is relative
+                if base_url and path.startswith("/"):
+                    full_url = f"{base_url.rstrip('/')}{path}"
+                else:
+                    full_url = path
                     
-            if isinstance(body, dict):
-                for field_name, var_name in step.get("extracts", {}).items():
-                    if field_name in body:
-                        variables[var_name] = body[field_name]
+                # Prepare payload with injected variables
+                payload = {}
+                for var_name, field_name in step.get("injects", {}).items():
+                    if var_name in variables:
+                        payload[field_name] = variables[var_name]
                         
-            results.append({
-                "step": step,
-                "request": {"method": method, "path": path, "payload": payload},
-                "response": response
-            })
+                # Execute attack
+                response = await self.executor.execute_attack(method, full_url, payload)
+                
+                # Extract variables from response
+                body = response.get("body", {})
+                if isinstance(body, str):
+                    try:
+                        body = json.loads(body)
+                    except json.JSONDecodeError:
+                        body = {}
+                        
+                if isinstance(body, dict):
+                    for field_name, var_name in step.get("extracts", {}).items():
+                        if field_name in body:
+                            variables[var_name] = body[field_name]
+                            
+                results.append({
+                    "step_index": i,
+                    "status": "success",
+                    "step": step,
+                    "request": {"method": method, "path": full_url, "payload": payload},
+                    "response": response
+                })
+            except Exception as e:
+                errors.append({
+                    "step_index": i,
+                    "status": "failed",
+                    "step": step,
+                    "error": str(e)
+                })
+                # Continue to next step instead of aborting
+                continue
             
         return {
             "chain": chain,
-            "results": results
+            "successful": results,
+            "failed": errors,
+            "partial_success": len(results) > 0 and len(errors) > 0
         }

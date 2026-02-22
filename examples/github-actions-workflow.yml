@@ -49,20 +49,9 @@ jobs:
             --target "http://localhost:3000" \
             --spec "./openapi.json" \
             --output "./security-reports" \
-            --format sarif \
+            --format sarif,junit \
             --fail-on high \
             --silent
-
-      - name: Run JUnit Report Generation
-        if: always()
-        run: |
-            chaos-kitten scan \
-            --target "http://localhost:3000" \
-            --spec "./openapi.json" \
-            --output "./security-reports" \
-            --format junit \
-             --fail-on none \
-             --silent
 
       - name: Upload SARIF Results
         uses: github/codeql-action/upload-sarif@v3
