@@ -51,6 +51,7 @@ class AgentState(TypedDict):
     results: List[Dict[str, Any]]
     findings: List[Dict[str, Any]]
     recon_results: Dict[str, Any]
+    nl_plan: Optional[Dict[str, Any]]  # Natural language planning results
 
 
 async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -79,15 +80,88 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, 
 
 
 
-def parse_openapi(state: AgentState) -> Dict[str, Any]:
+def parse_openapi(state: AgentState, app_config: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Parse OpenAPI spec or use pre-filtered diff endpoints."""
     try:
-        parser = OpenAPIParser(state["spec_path"])
-        parser.parse()
-        endpoints = parser.get_endpoints()
+        # Check if we're in diff mode with pre-computed delta endpoints
+        diff_mode = app_config.get("diff_mode", {}) if app_config else {}
+
+        if diff_mode.get("enabled"):
+            delta_endpoints = diff_mode.get("delta_endpoints") or []
+            if delta_endpoints:
+                # Use delta endpoints from diff analysis
+                endpoints = delta_endpoints
+                console.print(f"[bold cyan]🔄 Diff mode: Testing {len(endpoints)} changed endpoints[/bold cyan]")
+            else:
+                # Diff mode enabled but no delta endpoints provided/found
+                logger.warning(
+                    "Diff mode is enabled but no delta_endpoints were provided; "
+                    "no endpoints will be tested."
+                )
+                console.print(
+                    "[bold yellow]⚠ Diff mode enabled but no changed endpoints found/provided; skipping tests.[/bold yellow]"
+                )
+                endpoints = []
+        else:
+            # Normal mode: parse full spec
+            parser = OpenAPIParser(state["spec_path"])
+            parser.parse()
+            endpoints = parser.get_endpoints()
     except Exception:
         logger.exception("Failed to parse OpenAPI spec")
         raise
     return {"endpoints": endpoints, "current_endpoint": 0}
+
+
+def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Filter endpoints based on natural language goal."""
+    goal = app_config.get("agent", {}).get("goal")
+    
+    if not goal:
+        # No goal specified, return all endpoints unchanged
+        return {"nl_plan": {}}
+    
+    console.print(f"[bold cyan]🎯 Planning attacks for goal:[/bold cyan] {goal}")
+    
+    try:
+        planner = NaturalLanguagePlanner(state["endpoints"], app_config)
+        nl_plan = planner.plan(goal)
+        
+        # Filter endpoints based on NL plan
+        # Build (method, path) set for precise matching
+        relevant_pairs = {
+            (ep.get("method", "").upper(), ep.get("path"))
+            for ep in nl_plan.get("endpoints", [])
+        }
+        if relevant_pairs:
+            filtered_endpoints = [
+                ep for ep in state["endpoints"]
+                if (ep.get("method", "GET").upper(), ep.get("path")) in relevant_pairs
+            ]
+        else:
+            # Fallback: path-only
+            relevant_paths = {ep.get("path") for ep in nl_plan.get("endpoints", [])}
+            filtered_endpoints = [
+                ep for ep in state["endpoints"]
+                if ep.get("path") in relevant_paths
+            ]
+        
+        console.print(
+            f"[green]✓ LLM selected {len(filtered_endpoints)}/{len(state['endpoints'])} "
+            f"relevant endpoints[/green]"
+        )
+        
+        if nl_plan.get("focus"):
+            console.print(f"[yellow]Focus:[/yellow] {nl_plan['focus']}")
+        
+        return {
+            "endpoints": filtered_endpoints or state["endpoints"],  # Fallback to all if none match
+            "nl_plan": nl_plan
+        }
+    except Exception as exc:
+        logger.exception("Natural language planning failed: %s", exc)
+        console.print("[yellow]⚠️  NL planning failed, using all endpoints[/yellow]")
+        return {"nl_plan": {}}
 
 
 def plan_attacks(state: AgentState) -> Dict[str, Any]:
@@ -101,7 +175,11 @@ def plan_attacks(state: AgentState) -> Dict[str, Any]:
     # For now, we trust the LLM to deduce context from the endpoint itself.
     
     planner = AttackPlanner([endpoint])
-    return {"planned_attacks": planner.plan_attacks(endpoint)}
+    
+    # Extract NL-selected profiles if available
+    nl_profiles = (state.get("nl_plan") or {}).get("profiles")
+    
+    return {"planned_attacks": planner.plan_attacks(endpoint, allowed_profiles=nl_profiles)}
 
 
 async def execute_and_analyze(
@@ -349,6 +427,7 @@ class Orchestrator:
         # Nodes
         workflow.add_node("recon", partial(run_recon, app_config=self.config))
         workflow.add_node("parse", parse_openapi)
+        workflow.add_node("nl_plan", partial(natural_language_plan, app_config=self.config))
         workflow.add_node("plan", plan_attacks)
         workflow.add_node("execute", partial(execute_and_analyze, executor=executor, app_config=self.config))
         
