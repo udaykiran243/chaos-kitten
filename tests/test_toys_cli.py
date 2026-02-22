@@ -155,8 +155,10 @@ phases:
         mock_report.is_valid = True
         mock_validate.return_value = mock_report
 
-        result = runner.invoke(app, ["toys", "install", "test-toy"])
+        with patch("chaos_kitten.toys_cli.logger.warning") as mock_warning:
+            result = runner.invoke(app, ["toys", "install", "test-toy"])
 
-        assert result.exit_code == 0
-        assert "Successfully installed 'test-toy'" in result.stdout
-        assert (temp_toys_dir / "test-toy.yaml").exists()
+            assert result.exit_code == 0
+            assert "Successfully installed 'test-toy'" in result.stdout
+            assert (temp_toys_dir / "test-toy.yaml").exists()
+            mock_warning.assert_called_with("Profile contains suspicious pattern: \\.system\\(")

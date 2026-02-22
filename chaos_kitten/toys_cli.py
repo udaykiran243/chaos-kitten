@@ -167,6 +167,13 @@ def install_toy(
             # Validate content before saving (schema-level)
             console.print("[cyan]Validating profile...[/cyan]")
 
+            # Optional content audit for suspicious patterns
+            import re
+            suspicious_patterns = [r'\.system\(', r'__import__']
+            for pattern in suspicious_patterns:
+                if re.search(pattern, content):
+                    logger.warning(f"Profile contains suspicious pattern: {pattern}")
+
             # Save temporarily to validate schema
             temp_path = toys_dir / f".temp_{slug}{ext}"
             with open(temp_path, "w", encoding="utf-8") as f:
