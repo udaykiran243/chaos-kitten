@@ -7,12 +7,32 @@ severity: "medium"
 description: >
   Tests for sensitive information exposure through error messages, response headers,
   debug endpoints, metadata leakage, source code comments, and excessive user data.
-  Covers CWE-200 (Information Exposure) and OWASP A02/A05:2021.
+  Covers CWE-200 (Information Exposure) and OWASP A01:2021.
 
-# Fields to inject payloads into (empty for path-based disclosure tests)
-target_fields: []
+# Fields to inject payloads into (fields that might trigger error messages or debug output)
+target_fields:
+  - "id"
+  - "user_id"
+  - "post_id"
+  - "item_id"
+  - "order_id"
+  - "query"
+  - "q"
+  - "search"
+  - "file"
+  - "filename"
+  - "path"
+  - "url"
+  - "redirect"
+  - "format"
+  - "type"
+  - "debug"
+  - "verbose"
+  - "trace"
+  - "log"
+  - "level"
 
-# Simple payloads to trigger error messages and expose information
+# Payloads to trigger error messages and expose information
 payloads:
   # Error-inducing payloads (malformed syntax to trigger stack traces)
   - "'"                                    # SQL syntax boundary
@@ -22,48 +42,16 @@ payloads:
   - "NaN"                                  # Not a Number
   - "%00"                                  # Null byte injection
   - "{{7*7}}"                              # Template injection probe
-  - "/../../../etc/passwd"                 # Path traversal
-  - "/api/users/999999999"                 # Invalid ID out of range
-  - "divisor=0"                            # Division by zero
+  - "/../../../etc/passwd"                 # Path traversal probe
+  - "999999999"                            # Invalid ID out of range
+  - "0"                                    # Division by zero / boundary value
+  - "-1"                                   # Negative boundary value
   
-  # Debug/verbose mode flags
-  - "debug=true"
-  - "verbose=1"
-  - "trace=1"
-  - "XDEBUG_SESSION_START=1"
-  
-  # Common debug/info paths (to test as path segments)
-  - "/debug"
-  - "/api/debug"
-  - "/metrics"
-  - "/api/health"
-  - "/api/status"
-  - "/api/version"
-  - "/api/info"
-  - "/admin"
-  - "/api/admin"
-  
-  # Documentation/metadata paths
-  - "/api/swagger"
-  - "/api/docs"
-  - "/swagger.json"
-  - "/api/v1/swagger.json"
-  - "/openapi.json"
-  - "/api/openapi.json"
-  
-  # Source code/config file paths
-  - "/.git/config"
-  - "/.env"
-  - "/package.json"
-  - "/composer.json"
-  - "/api.js"
-  - "/main.js"
-  - "/config.js"
-  
-  # Directory listing probes  
-  - "/uploads/"
-  - "/files/"
-  - "/api/logs"
+  # Debug/verbose mode flag values (for debug-related fields)
+  - "true"
+  - "1"
+  - "yes"
+  - "on"
 
 
 # Success indicators for information disclosure
@@ -75,7 +63,8 @@ success_indicators:
     - "at line"
     - "in file"
     - "/var/www/"
-    - "/home/"
+    - "/home/www-data/"
+    - "/home/ubuntu/"
     - "Exception"
     - "ValueError"
     - "TypeError"
@@ -248,4 +237,4 @@ references:
   - "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/08-Testing_for_Error_Handling/01-Testing_For_Improper_Error_Handling"
 
 cwe: "CWE-200"
-owasp: "A02/A05:2021"
+owasp: "A01:2021"
