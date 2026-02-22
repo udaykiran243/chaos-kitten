@@ -178,6 +178,12 @@ def scan(
     config_loader = Config(config)
     try:
         app_config = config_loader.load()
+    except Exception as e:
+        if not silent:
+            console.print(f"[yellow]Warning: Could not load config file: {e}[/yellow]")
+            
+    # Override with CLI arguments
+    app_config["silent"] = silent
     except FileNotFoundError:
         # It's okay if file doesn't exist AND we provided args
         if not target and not spec and not demo:

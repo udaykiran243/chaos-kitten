@@ -143,7 +143,7 @@ Chaos Kitten uses LLMs for intelligent reasoning:
 
 Most pentest tools test endpoints in isolation. Chaos Kitten uses the LLM to reason about the API graph and automatically chain attacks across endpoints for multi-step exploitation.
 
-1. **Endpoint Graph**: Builds a directed graph from the OpenAPI schema using shared `$ref` types and parameter names.
+1. **Endpoint Graph**: Builds a directed graph from the OpenAPI schema by matching field names produced in responses to field names consumed in requests.
 2. **Attack Chain Planner**: The LLM analyzes the graph to propose multi-step attack sequences (e.g., Create User -> Get User Orders -> Delete Order).
 3. **Chain Executor**: Executes each proposed chain, capturing intermediate values (IDs, tokens) and feeding them into subsequent steps.
 

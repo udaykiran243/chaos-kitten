@@ -54,7 +54,9 @@ class AgentState(TypedDict):
 
 async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     # Renamed to app_config to avoid LangGraph collision
-    console.print("[bold blue]🔍 Starting Reconnaissance Phase...[/bold blue]")
+    silent = app_config.get("silent", False)
+    if not silent:
+        console.print("[bold blue]🔍 Starting Reconnaissance Phase...[/bold blue]")
     try:
         engine = ReconEngine(app_config)
         
@@ -62,20 +64,22 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, 
         loop = asyncio.get_running_loop()
         results = await loop.run_in_executor(None, engine.run)
 
-        if results:
+        if results and not silent:
             subs = len(results.get('subdomains', []))
             techs = len(results.get('technologies', {}))
             console.print(f"[green]Recon complete: Found {subs} subdomains and fingerprint info for {techs} targets[/green]")
         return {"recon_results": results}
     except Exception as e:
         logger.exception("Reconnaissance failed")
-        console.print(f"[red]Reconnaissance failed: {e}[/red]")
+        if not silent:
+            console.print(f"[red]Reconnaissance failed: {e}[/red]")
         return {"recon_results": {}}
 
 
 
 def parse_openapi(state: AgentState, app_config: Dict[str, Any] = None) -> Dict[str, Any]:
     """Parse OpenAPI spec or use pre-filtered diff endpoints."""
+    silent = app_config.get("silent", False) if app_config else False
     try:
         # Check if we're in diff mode with pre-computed delta endpoints
         diff_mode = app_config.get("diff_mode", {}) if app_config else {}
@@ -85,16 +89,18 @@ def parse_openapi(state: AgentState, app_config: Dict[str, Any] = None) -> Dict[
             if delta_endpoints:
                 # Use delta endpoints from diff analysis
                 endpoints = delta_endpoints
-                console.print(f"[bold cyan]🔄 Diff mode: Testing {len(endpoints)} changed endpoints[/bold cyan]")
+                if not silent:
+                    console.print(f"[bold cyan]🔄 Diff mode: Testing {len(endpoints)} changed endpoints[/bold cyan]")
             else:
                 # Diff mode enabled but no delta endpoints provided/found
                 logger.warning(
                     "Diff mode is enabled but no delta_endpoints were provided; "
                     "no endpoints will be tested."
                 )
-                console.print(
-                    "[bold yellow]⚠ Diff mode enabled but no changed endpoints found/provided; skipping tests.[/bold yellow]"
-                )
+                if not silent:
+                    console.print(
+                        "[bold yellow]⚠ Diff mode enabled but no changed endpoints found/provided; skipping tests.[/bold yellow]"
+                    )
                 endpoints = []
         else:
             # Normal mode: parse full spec
@@ -201,7 +207,12 @@ async def execute_and_analyze(
             adaptive_mode = False
         else:
             provider = agent_config.get("llm_provider", "anthropic").lower()
-            model = agent_config.get("model", "claude-3-5-sonnet-20241022")
+            model_defaults = {
+                "openai": "gpt-4o",
+                "anthropic": "claude-3-5-sonnet-20241022",
+                "ollama": "llama2"
+            }
+            model = agent_config.get("model", model_defaults.get(provider, "claude-3-5-sonnet-20241022"))
             temperature = agent_config.get("temperature", 0.7)
 
             try:
@@ -417,7 +428,9 @@ class Orchestrator:
         return workflow.compile()
 
     async def run(self) -> Dict[str, Any]:
-        console.print("[bold green]🧠 Chaos Kitten Brain Initializing...[/bold green]")
+        silent = self.config.get("silent", False)
+        if not silent:
+            console.print("[bold green]🧠 Chaos Kitten Brain Initializing...[/bold green]")
 
         api_config = self.config.get("api")
         target_config = self.config.get("target")
@@ -514,10 +527,11 @@ class Orchestrator:
             {"vulnerabilities": all_findings}, target_url
         )
 
-        console.print("\n[bold green]Scan Complete![/bold green]")
-        console.print(
-            f"[bold cyan]📄 Report generated:[/bold cyan] [underline]{report_file}[/underline]"
-        )
+        if not silent:
+            console.print("\n[bold green]Scan Complete![/bold green]")
+            console.print(
+                f"[bold cyan]📄 Report generated:[/bold cyan] [underline]{report_file}[/underline]"
+            )
 
         return {
             "vulnerabilities": all_findings,
