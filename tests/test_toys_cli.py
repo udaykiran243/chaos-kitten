@@ -122,7 +122,7 @@ phases:
         assert (temp_toys_dir / "test-toy.yaml").exists()
 
 @patch("urllib.request.urlopen")
-def test_toys_install_safety_check_failure(mock_urlopen, mock_fetch_registry, temp_toys_dir):
+    def test_toys_install_allows_payload_content(mock_urlopen, mock_fetch_registry, temp_toys_dir):
     # Mock the response for downloading the profile
     mock_response = MagicMock()
     mock_response.status = 200
@@ -147,9 +147,16 @@ phases:
     mock_response.__enter__.return_value = mock_response
     mock_urlopen.return_value = mock_response
     
-    result = runner.invoke(app, ["toys", "install", "test-toy"])
-    
-    assert result.exit_code == 0
-    assert "Safety check failed" in result.stdout
-    assert "os.system" in result.stdout
-    assert not (temp_toys_dir / "test-toy.yaml").exists()
+    # Mock the validator to treat the profile as valid even though
+    # the payload string contains code-like content. The YAML is data,
+    # and schema validation (not keyword scanning) guards safety.
+    with patch("chaos_kitten.validators.profile_validator.AttackProfileValidator.validate_profile") as mock_validate:
+        mock_report = MagicMock()
+        mock_report.is_valid = True
+        mock_validate.return_value = mock_report
+
+        result = runner.invoke(app, ["toys", "install", "test-toy"])
+
+        assert result.exit_code == 0
+        assert "Successfully installed 'test-toy'" in result.stdout
+        assert (temp_toys_dir / "test-toy.yaml").exists()

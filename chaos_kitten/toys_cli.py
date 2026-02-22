@@ -6,10 +6,13 @@ import os
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.error import URLError
+from urllib.parse import urlparse
 
 import typer
 from rich.console import Console
 from rich.table import Table
+from typer import Exit
 
 from chaos_kitten.validators.profile_validator import AttackProfileValidator
 
@@ -26,20 +29,40 @@ toys_app = typer.Typer(
 DEFAULT_REGISTRY_URL = "https://raw.githubusercontent.com/mdhaarishussain/chaos-kitten/main/toys/registry.json"
 REGISTRY_URL = os.environ.get("CHAOS_KITTEN_REGISTRY_URL", DEFAULT_REGISTRY_URL)
 
+
+def _validate_url(url: str) -> None:
+    """Ensure URL uses a safe scheme (http/https)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid URL scheme: {parsed.scheme}. Only http/https allowed.")
+
+
 def _fetch_registry() -> Dict[str, Any]:
-    """Fetch the toy registry from the remote URL."""
+    """Fetch the toy registry from the remote URL.
+
+    On error, prints a helpful message and exits with a non-zero code
+    so CI/CD can detect the failure.
+    """
     try:
-        req = urllib.request.Request(REGISTRY_URL, headers={'User-Agent': 'Chaos-Kitten-CLI'})
+        _validate_url(REGISTRY_URL)
+        req = urllib.request.Request(REGISTRY_URL, headers={"User-Agent": "Chaos-Kitten-CLI"})
         with urllib.request.urlopen(req, timeout=10) as response:
-            if response.status == 200:
-                data = response.read().decode('utf-8')
-                return json.loads(data)
-            else:
+            if response.status != 200:
                 console.print(f"[red]Failed to fetch registry: HTTP {response.status}[/red]")
-                return {}
-    except Exception as e:
-        console.print(f"[red]Error fetching registry: {e}[/red]")
-        return {}
+                raise Exit(code=1)
+
+            data = response.read().decode("utf-8")
+            try:
+                return json.loads(data)
+            except json.JSONDecodeError as e:
+                console.print(f"[red]Invalid registry JSON: {e}[/red]")
+                raise Exit(code=1)
+    except URLError as e:
+        console.print(f"[red]Network error fetching registry from {REGISTRY_URL}: {e}[/red]")
+        raise Exit(code=1)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise Exit(code=1)
 
 def _get_local_toys_dir() -> Path:
     """Get the local toys directory."""
@@ -60,7 +83,7 @@ def search_toys(
     
     if not registry or "profiles" not in registry:
         console.print("[red]Registry is empty or invalid.[/red]")
-        return
+        raise Exit(code=1)
         
     profiles = registry["profiles"]
     
@@ -108,18 +131,18 @@ def install_toy(
     
     if not registry or "profiles" not in registry:
         console.print("[red]Registry is empty or invalid.[/red]")
-        return
+        raise Exit(code=1)
         
     if slug not in registry["profiles"]:
         console.print(f"[red]Profile '{slug}' not found in registry.[/red]")
-        return
+        raise Exit(code=1)
         
     profile_info = registry["profiles"][slug]
     download_url = profile_info.get("url")
     
     if not download_url:
         console.print(f"[red]Profile '{slug}' has no download URL.[/red]")
-        return
+        raise Exit(code=1)
         
     toys_dir = _get_local_toys_dir()
     # Determine extension from URL or default to yaml
@@ -132,62 +155,60 @@ def install_toy(
         
     console.print(f"[cyan]Downloading '{slug}' from {download_url}...[/cyan]")
     try:
-        req = urllib.request.Request(download_url, headers={'User-Agent': 'Chaos-Kitten-CLI'})
+        _validate_url(download_url)
+        req = urllib.request.Request(download_url, headers={"User-Agent": "Chaos-Kitten-CLI"})
         with urllib.request.urlopen(req, timeout=10) as response:
-            if response.status == 200:
-                content = response.read().decode('utf-8')
-                
-                # Validate content before saving
-                console.print("[cyan]Validating profile...[/cyan]")
-                
-                # Basic safety check (no shell execution payloads)
-                dangerous_keywords = ["os.system", "subprocess", "eval(", "exec(", "__import__"]
-                for kw in dangerous_keywords:
-                    if kw in content:
-                        console.print(f"[red]Safety check failed: Profile contains potentially dangerous keyword '{kw}'. Installation aborted.[/red]")
-                        return
-                
-                # Save temporarily to validate schema
-                temp_path = toys_dir / f".temp_{slug}{ext}"
-                with open(temp_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                    
-                try:
-                    validator = AttackProfileValidator()
-                    report = validator.validate_profile(str(temp_path))
-                    if not report.is_valid:
-                        console.print("[red]Schema validation failed:[/red]")
-                        for err in report.errors:
-                            console.print(f"  - {err}")
-                        temp_path.unlink()
-                        return
-                except Exception as e:
-                    console.print(f"[red]Validation error: {e}[/red]")
-                    temp_path.unlink()
-                    return
-                    
-                # Move temp file to final destination
-                if dest_path.exists():
-                    dest_path.unlink()
-                temp_path.rename(dest_path)
-                
-                console.print(f"[green]Successfully installed '{slug}' to {dest_path}[/green]")
-            else:
+            if response.status != 200:
                 console.print(f"[red]Failed to download profile: HTTP {response.status}[/red]")
-    except Exception as e:
-        console.print(f"[red]Error downloading profile: {e}[/red]")
+                raise Exit(code=1)
+
+            content = response.read().decode("utf-8")
+
+            # Validate content before saving (schema-level)
+            console.print("[cyan]Validating profile...[/cyan]")
+
+            # Save temporarily to validate schema
+            temp_path = toys_dir / f".temp_{slug}{ext}"
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            try:
+                validator = AttackProfileValidator()
+                report = validator.validate_profile(str(temp_path))
+                if not report.is_valid:
+                    console.print("[red]Schema validation failed:[/red]")
+                    for err in report.errors:
+                        console.print(f"  - {err}")
+                    temp_path.unlink()
+                    raise Exit(code=1)
+            except Exception as e:
+                console.print(f"[red]Validation error: {e}[/red]")
+                if temp_path.exists():
+                    temp_path.unlink()
+                raise Exit(code=1)
+
+            # Atomically move temp file to final destination
+            try:
+                temp_path.replace(dest_path)
+            except Exception as e:
+                console.print(f"[red]Failed to save profile: {e}[/red]")
+                if temp_path.exists():
+                    temp_path.unlink()
+                raise Exit(code=1)
+
+            console.print(f"[green]Successfully installed '{slug}' to {dest_path}[/green]")
+    except URLError as e:
+        console.print(f"[red]Network error downloading profile from {download_url}: {e}[/red]")
+        raise Exit(code=1)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise Exit(code=1)
 
 @toys_app.command("list")
-def list_toys(
-    installed: bool = typer.Option(True, "--installed", help="List installed profiles"),
-):
+def list_toys():
     """List installed attack profiles."""
     toys_dir = _get_local_toys_dir()
-    
-    if not toys_dir.exists():
-        console.print("[yellow]No local toys directory found.[/yellow]")
-        return
-        
+
     profiles = []
     for ext in ["*.yaml", "*.yml", "*.json"]:
         profiles.extend(list(toys_dir.glob(ext)))
@@ -213,7 +234,7 @@ def publish_toy(
     path = Path(file_path)
     if not path.exists():
         console.print(f"[red]File not found: {file_path}[/red]")
-        return
+        raise Exit(code=1)
         
     console.print("[bold magenta]Publishing to Chaos Kitten Registry[/bold magenta]")
     console.print("\nThe registry is hosted as a GitHub-backed JSON index.")
