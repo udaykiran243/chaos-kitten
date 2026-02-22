@@ -72,7 +72,7 @@ class EndpointGraph:
         """Return a string summary of the graph for the LLM."""
         summary = []
         for i, ep in enumerate(self.endpoints):
-            summary.append(f"[{i}] {ep['method']} {ep['path']}")
+            summary.append(f"[{i}] {ep.get('method', 'UNKNOWN')} {ep.get('path', '/')}")
             edges = self.graph.get(i, [])
             if edges:
                 targets = set(f"[{e['target']}] (via {e['field']})" for e in edges)
@@ -145,7 +145,7 @@ class AttackChainPlanner:
         
         endpoints_details = []
         for i, ep in enumerate(endpoints):
-            endpoints_details.append(f"[{i}] {ep['method']} {ep['path']}")
+            endpoints_details.append(f"[{i}] {ep.get('method', 'UNKNOWN')} {ep.get('path', '/')}")
             
         prompt = ChatPromptTemplate.from_template(CHAIN_PLANNER_PROMPT)
         chain = prompt | self.llm | JsonOutputParser()
