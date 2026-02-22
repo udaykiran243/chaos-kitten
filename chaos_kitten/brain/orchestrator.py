@@ -449,7 +449,14 @@ class Orchestrator:
             ) as progress:
                 scan_task = progress.add_task("[cyan]Scanning endpoints...", total=None)
 
-                async with Executor(target_url) as executor:
+                exec_cfg = self.config.get("executor", {}) or {}
+                async with Executor(
+                    base_url=target_url,
+                    auth_type=exec_cfg.get("auth_type", "bearer"),
+                    auth_token=exec_cfg.get("auth_token") or self.config.get("target", {}).get("auth_token"),
+                    rate_limit=exec_cfg.get("rate_limit", 10),
+                    timeout=exec_cfg.get("timeout", 30),
+                ) as executor:
                     app = self._build_graph(executor)
                     
                     # If we resumed, we skip 'recon' and 'parse' nodes essentially by starting from 'plan'
