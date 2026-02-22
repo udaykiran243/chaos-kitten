@@ -404,6 +404,9 @@ class Orchestrator:
         self.chaos = chaos
         self.chaos_level = chaos_level
         
+        # Initialize reporter
+        self.reporter = Reporter()
+        
         # State tracking
         self.vulnerabilities: List[Dict[str, Any]] = []
 
@@ -493,7 +496,7 @@ class Orchestrator:
         # If LangGraph was skipped, we can still report total from config if we had parser data
         # but for now, let's keep it simple and consistent with what was actually tested.
 
-        return {
+        results = {
             "vulnerabilities": self.vulnerabilities,
             "chaos_findings": chaos_findings,
             "summary": {
@@ -503,3 +506,13 @@ class Orchestrator:
                 "tested_endpoints": tested_endpoints,
             }
         }
+
+        # Always generate report, even if attacks failed
+        try:
+            report_output = self.config.get("report_output", "report.html")
+            self.reporter.generate(results, report_output)
+            console.print(f"\u2705 [green]Report saved to:[/green] [cyan]{report_output}[/cyan]")
+        except Exception as e:
+            logger.error("Failed to generate report: %s", e)
+
+        return results
