@@ -102,13 +102,13 @@ def scan(
         help="Path to OpenAPI spec (overrides config)",
     ),
     output: str = typer.Option(
-        "./reports",
+        None,
         "--output",
         "-o",
         help="Directory to save the security report",
     ),
     format: str = typer.Option(
-        "html",
+        None,
         "--format",
         "-f",
         help="Format of the report (html, markdown, json, sarif, junit)",
@@ -134,21 +134,11 @@ def scan(
         "--demo",
         help="Run scan against the demo vulnerable API",
     ),
-    cors: bool = typer.Option(
-    False,
-    "--cors",
-    help="Run CORS misconfiguration scan",
-    ),
-    goal: str = typer.Option(
-    None,
-    "--goal",
-    "-g",
-    help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
-    goal: str = typer.Option(
-        None,
-        "--goal",
-        "-g",
-        help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        "-r",
+        help="Resume scan from last checkpoint",
     ),
 ):
     """Scan an API for security vulnerabilities."""
@@ -169,19 +159,12 @@ def scan(
 
     # Check for API keys if using LLM providers
     import os
-    if not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
-        if not silent:
-            console.print("[bold red]❌ I can't see![/bold red]")
-            console.print("I need an [bold]ANTHROPIC_API_KEY[/bold] or [bold]OPENAI_API_KEY[/bold] to plan my mischief.")
-            console.print("[dim]Please set one in your environment or .env file.[/dim]")
-        
-        if not demo:
-            raise typer.Exit(code=1)
-        else:
-            if not silent:
-                console.print("[yellow]⚠️  Proceeding anyway since we are in demo mode...[/yellow]")
+    if not demo and not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+        console.print("[yellow]⚠️  No LLM API key found (ANTHROPIC_API_KEY or OPENAI_API_KEY).[/yellow]")
+        console.print("[yellow]    Some features like attack planning might not work.[/yellow]")
+    elif not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+         console.print("[yellow]⚠️  Proceeding without API keys since we are in demo mode...[/yellow]")
     
-
     # Build configuration
     app_config = {}
     
@@ -230,11 +213,7 @@ def scan(
 
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
-    target_url = (
-    app_config.get("target", {}).get("base_url")
-    or app_config.get("api", {}).get("base_url")
-    )
-    orchestrator = Orchestrator(app_config)
+    orchestrator = Orchestrator(app_config, resume=resume)
     try:
         if not silent:
             console.print("[bold green]🚀 Launching Chaos Kitten...[/bold green]")
@@ -257,28 +236,22 @@ def scan(
             console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
             raise typer.Exit(code=1)
 
-        # Handle --fail-on
-        if fail_on and fail_on.lower() != "none":
-            severity_levels = ["low", "medium", "high", "critical"]
-            try:
-                threshold_index = severity_levels.index(fail_on.lower())
-            except ValueError:
-                console.print(f"[bold yellow]⚠️ Invalid fail-on level '{fail_on}', defaulting to critical[/bold yellow]")
-                threshold_index = 3  # Default to critical
-            
+        # Display summary
+        summary = results.get("summary", {})
+        if summary:
+            console.print("\n[bold green]📊 Scan Summary:[/bold green]")
+            console.print(f"   Tested Endpoints: {summary.get('tested_endpoints', 0)} / {summary.get('total_endpoints', 0)}")
+            console.print(f"   Vulnerabilities Found: [bold red]{summary.get('vulnerabilities_found', 0)}[/bold red]")
+
+        # Handle --fail-on-critical
+        if fail_on_critical:
             vulnerabilities = results.get("vulnerabilities", [])
-            max_severity_found = -1
-            
-            for vuln in vulnerabilities:
-                severity = str(vuln.get("severity", "low")).lower()
-                if severity in severity_levels:
-                    idx = severity_levels.index(severity)
-                    if idx > max_severity_found:
-                        max_severity_found = idx
-                        
-            if max_severity_found >= threshold_index:
-                if not silent:
-                    console.print(f"[bold red]❌ Found vulnerabilities of severity {severity_levels[max_severity_found].upper()} or higher. Failing pipeline.[/bold red]")
+            critical_vulns = [
+                v for v in vulnerabilities
+                if str(v.get("severity", "")).lower() == "critical"
+            ]
+            if critical_vulns:
+                console.print(f"[bold red]❌ Found {len(critical_vulns)} critical vulnerabilities. Failing pipeline.[/bold red]")
                 raise typer.Exit(code=1)
             elif not silent:
                 console.print("[bold green]✅ No vulnerabilities found exceeding the failure threshold.[/bold green]")
@@ -287,9 +260,7 @@ def scan(
         raise
     except Exception as e:
         console.print(f"[bold red]❌ Scan failed:[/bold red] {e}")
-        # import traceback
-        # console.print(traceback.format_exc())
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command()

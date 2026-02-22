@@ -102,26 +102,21 @@ ANTHROPIC_API_KEY=your_key_here
 chaos-kitten scan
 ```
 
-### 5. Use Natural Language Targeting (Optional)
+### 5. Resuming an Interrupted Scan
 
-The `--goal` flag lets you describe what you want to test in plain English. Chaos Kitten's LLM will automatically select relevant endpoints and attack profiles based on your goal.
+If a long-running scan is interrupted (e.g., due to network issues or accidental closure), you can resume it from the last checkpoint:
 
-**Example 1: Payment Security**
 ```bash
-chaos-kitten scan --goal "find all endpoints that handle money or payments and check if prices can be manipulated"
+chaos-kitten scan --resume
 ```
 
-**Example 2: Access Control**
-```bash
-chaos-kitten scan --goal "I want to check if admin endpoints are accessible to regular users"
-```
+This will:
+- Load the last saved state from `.chaos-checkpoint.json`
+- Skip already completed attack profiles
+- Continue finding vulnerabilities where it left off
 
-**Example 3: Authentication Testing**
-```bash
-chaos-kitten scan --goal "test the authentication system for account takeover risks"
-```
+> **Note:** Checkpoints are automatically invalidated if you change the configuration between runs.
 
-Without `--goal`, Chaos Kitten runs a full scan testing all endpoints. With `--goal`, the LLM prioritizes endpoints relevant to your security concern.
 
 ## Understanding Results
 
