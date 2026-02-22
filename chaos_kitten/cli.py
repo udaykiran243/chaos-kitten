@@ -4,11 +4,14 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
+from chaos_kitten.toys_cli import toys_app
+
 app = typer.Typer(
     name="chaos-kitten",
     help="🐱 Chaos Kitten - The adorable AI agent that knocks things off your API tables",
     add_completion=False,
 )
+app.add_typer(toys_app, name="toys")
 console = Console()
 
 ASCII_CAT = r"""
