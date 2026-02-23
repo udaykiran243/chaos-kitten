@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """OpenAPI/Swagger specification parser.
 
 This module provides the `OpenAPIParser` class, which parses OpenAPI 3.x and 
@@ -28,7 +30,6 @@ Examples:
     dict_keys(['BearerAuth', 'ApiKey'])
 """
 
-from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
