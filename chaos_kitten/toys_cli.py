@@ -30,11 +30,11 @@ DEFAULT_REGISTRY_URL = "https://raw.githubusercontent.com/mdhaarishussain/chaos-
 REGISTRY_URL = os.environ.get("CHAOS_KITTEN_REGISTRY_URL", DEFAULT_REGISTRY_URL)
 
 
-def _validate_url(url: str) -> None:
+def _validate_url(url: str, context: str = "URL") -> None:
     """Ensure URL uses a safe scheme (http/https)."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Invalid URL scheme: {parsed.scheme}. Only http/https allowed.")
+        raise ValueError(f"{context} uses disallowed scheme '{parsed.scheme}'. Only http/https are permitted.")
 
 
 def _fetch_registry() -> Dict[str, Any]:
@@ -44,7 +44,7 @@ def _fetch_registry() -> Dict[str, Any]:
     so CI/CD can detect the failure.
     """
     try:
-        _validate_url(REGISTRY_URL)
+        _validate_url(REGISTRY_URL, "CHAOS_KITTEN_REGISTRY_URL")
         req = urllib.request.Request(REGISTRY_URL, headers={"User-Agent": "Chaos-Kitten-CLI"})
         with urllib.request.urlopen(req, timeout=10) as response:
             if response.status != 200:
@@ -155,7 +155,7 @@ def install_toy(
         
     console.print(f"[cyan]Downloading '{slug}' from {download_url}...[/cyan]")
     try:
-        _validate_url(download_url)
+        _validate_url(download_url, f"download_url for '{slug}'")
         req = urllib.request.Request(download_url, headers={"User-Agent": "Chaos-Kitten-CLI"})
         with urllib.request.urlopen(req, timeout=10) as response:
             if response.status != 200:
