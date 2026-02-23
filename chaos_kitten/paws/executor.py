@@ -71,7 +71,6 @@ class Executor:
             timeout=self.timeout,
             headers=self._build_headers(),
         )
-        # Initialize rate limiter semaphore
         self._rate_limiter = asyncio.Semaphore(self.rate_limit)
         return self
     
@@ -500,14 +499,16 @@ class Executor:
         async with self._rate_limiter:
             # Calculate time since last request
             current_time = time.perf_counter()
-            time_since_last = current_time - self._last_request_time
             
-            # Minimum time between requests (in seconds)
-            min_interval = 1.0 / self.rate_limit if self.rate_limit > 0 else 0
-            
-            # Sleep if we're going too fast
-            if time_since_last < min_interval:
-                await asyncio.sleep(min_interval - time_since_last)
+            if self._last_request_time is not None:
+                time_since_last = current_time - self._last_request_time
+                
+                # Minimum time between requests (in seconds)
+                min_interval = 1.0 / self.rate_limit if self.rate_limit > 0 else 0
+                
+                # Sleep if we're going too fast
+                if time_since_last < min_interval:
+                    await asyncio.sleep(min_interval - time_since_last)
             
             # Update last request time
             self._last_request_time = time.perf_counter()
