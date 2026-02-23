@@ -98,8 +98,11 @@ payloads:
   - "http://127.0.0.1%2523@evil.com/"
 
   # --- 9. Redirect-based SSRF ---
-  - "https://httpbin.org/redirect-to?url=http://169.254.169.254/latest/meta-data/"
-  - "http://attacker.com/redirect?target=http://127.0.0.1/admin"
+  # NOTE: Effective redirect-based SSRF testing requires a controlled server
+  # (e.g., Burp Collaborator, interactsh, or an owned domain with a redirect rule).
+  # Replace <YOUR_REDIRECT_SERVER> with your controlled endpoint before testing.
+  - "http://<YOUR_REDIRECT_SERVER>/redirect?url=http://169.254.169.254/latest/meta-data/"
+  - "http://<YOUR_REDIRECT_SERVER>/redirect?url=http://127.0.0.1/admin"
 
 # Indicators that suggest successful SSRF exploitation
 success_indicators:
@@ -114,31 +117,32 @@ success_indicators:
     # GCP metadata indicators
     - "computeMetadata"
     - "service-accounts"
-    - "access_token"
     # Azure metadata indicators
     - "vmId"
     - "subscriptionId"
-    # Internal file / service indicators
+    # Internal file indicators
     - "root:x:"
-    - "localhost"
-    - "127.0.0.1"
-    # Internal service banners
-    - "Redis"
-    - "MongoDB"
-    - "Elasticsearch"
+    # Internal service banners (specific to service response bodies)
+    - "Redis Version"
+    - "MongoDB server version"
+    - "cluster_name"
     - "PostgreSQL"
-    # DNS / IP disclosure patterns
-    - "10.0."
-    - "172.16."
-    - "192.168."
 
   status_codes:
     - 200
-    - 301
-    - 302
 
   # Blind SSRF — response time delta detection
   response_time_gt: 5  # seconds
+
+  # Check redirect Location headers for internal addresses
+  redirect_location_contains:
+    - "169.254.169.254"
+    - "127.0.0.1"
+    - "localhost"
+    - "10.0."
+    - "172.16."
+    - "192.168."
+    - "metadata.google.internal"
 
   # Cloud-specific headers leaked in response
   headers_present:
@@ -158,16 +162,23 @@ remediation: |
          return parsed.hostname in ALLOWED_HOSTS
      ```
 
-  2. **Block Internal IP Ranges**: Deny requests to private/reserved IPs
+  2. **Block Internal IP Ranges**: Deny requests to private/reserved IPs.
+     Resolve DNS once and reuse the IP for the actual request to prevent
+     DNS rebinding (TOCTOU) attacks.
      ```python
      import ipaddress
+     import socket
 
-     def is_internal(hostname: str) -> bool:
+     def validate_and_resolve(hostname: str) -> str:
+         """Resolve hostname, block internal IPs, return safe IP."""
          try:
-             ip = ipaddress.ip_address(socket.gethostbyname(hostname))
-             return ip.is_private or ip.is_loopback or ip.is_link_local
+             resolved_ip = socket.gethostbyname(hostname)
+             ip = ipaddress.ip_address(resolved_ip)
+             if ip.is_private or ip.is_loopback or ip.is_link_local:
+                 raise ValueError(f"Blocked internal IP: {resolved_ip}")
+             return resolved_ip  # Use this IP for the actual request
          except (socket.gaierror, ValueError):
-             return True  # Block if resolution fails
+             raise ValueError(f"Blocked: cannot resolve or internal IP")
      ```
 
   3. **Disable Unnecessary Protocols**: Only allow http/https
@@ -191,14 +202,15 @@ remediation: |
      - Canonicalize IP representations (decimal, octal, hex) before validation
      - Reject URLs with credentials (user:pass@host)
 
-  OWASP API Security Top 10 (2023) — API8:2023 Security Misconfiguration
-  also covers SSRF as a consequence of misconfigured outbound request policies.
+  OWASP API Security Top 10 (2023) — API7:2023 Server Side Request Forgery
+  covers SSRF flaws where an API fetches a remote resource without validating
+  the user-supplied URL.
 
 references:
   - "https://cwe.mitre.org/data/definitions/918.html"
   - "https://owasp.org/www-community/attacks/Server_Side_Request_Forgery"
   - "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
-  - "https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/"
+  - "https://owasp.org/API-Security/editions/2023/en/0xa7-server-side-request-forgery/"
   - "https://portswigger.net/web-security/ssrf"
 
 cat_message: "I snuck through the cat flap into the server room! 🐱💻 (SSRF: server made an unintended internal request)"
