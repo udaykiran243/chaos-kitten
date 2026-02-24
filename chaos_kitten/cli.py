@@ -1,10 +1,18 @@
 """Chaos Kitten CLI - Command Line Interface."""
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from chaos_kitten.brain.cors import analyze_cors
+import logging
+
+try:
+    from chaos_kitten import __version__
+except ImportError:
+    __version__ = "0.0.0"
 
 from chaos_kitten.toys_cli import toys_app
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="chaos-kitten",
@@ -29,7 +37,6 @@ ASCII_CAT = r"""
 @app.command()
 def version():
     """Show version information."""
-    from chaos_kitten import __version__
     console.print(f"[bold magenta]Chaos Kitten[/bold magenta] v{__version__}")
 
 
@@ -136,16 +143,28 @@ def scan(
         "--demo",
         help="Run scan against the demo vulnerable API",
     ),
-    cors: bool = typer.Option(
-        False,
-        "--cors",
-        help="Run CORS misconfiguration scan",
-    ),
     goal: str = typer.Option(
         None,
         "--goal",
         "-g",
         help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
+    ),
+    cors: bool = typer.Option(
+        False,
+        "--cors",
+        help="Run CORS misconfiguration scan",
+    ),
+    chaos: bool = typer.Option(
+        False,
+        "--chaos",
+        help="Enable chaos mode for negative testing with random invalid inputs",
+    ),
+    chaos_level: int = typer.Option(
+        3,
+        "--chaos-level",
+        help="Chaos intensity from 1 (gentle) to 5 (maximum carnage)",
+        min=1,
+        max=5,
     ),
 ):
     """Scan an API for security vulnerabilities."""
@@ -166,18 +185,15 @@ def scan(
 
     # Check for API keys if using LLM providers
     import os
-    if not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+    if not demo and not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
         if not silent:
             console.print("[bold red]❌ I can't see![/bold red]")
             console.print("I need an [bold]ANTHROPIC_API_KEY[/bold] or [bold]OPENAI_API_KEY[/bold] to plan my mischief.")
             console.print("[dim]Please set one in your environment or .env file.[/dim]")
         
         if not demo:
-            raise typer.Exit(code=1)
-        else:
-            if not silent:
-                console.print("[yellow]⚠️  Proceeding anyway since we are in demo mode...[/yellow]")
-    
+             if provider != "ollama":
+                pass
 
     # Build configuration
     app_config = {}
@@ -190,9 +206,14 @@ def scan(
     except FileNotFoundError:
         # It's okay if file doesn't exist AND we provided args
         if not target and not spec and not demo:
-            console.print(f"[bold red]❌ Config file not found: {config}[/bold red]")
-            console.print("Run 'chaos-kitten init' or provide --target and --spec args.")
+            if not silent:
+                console.print(f"[bold red]❌ Config file not found: {config}[/bold red]")
+                console.print("Run 'chaos-kitten init' or provide --target and --spec args.")
             raise typer.Exit(code=1)
+    except Exception as e:
+        if not silent:
+            console.print(f"[yellow]Warning: Could not load config file: {e}[/yellow]")
+
             
     # CLI args override config
     if target:
@@ -225,33 +246,52 @@ def scan(
         if "agent" not in app_config: app_config["agent"] = {}
         app_config["agent"]["goal"] = goal
 
+    app_config["silent"] = silent
+
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
+    
     target_url = (
-    app_config.get("target", {}).get("base_url")
-    or app_config.get("api", {}).get("base_url")
+        app_config.get("target", {}).get("base_url")
+        or app_config.get("api", {}).get("base_url")
     )
-    orchestrator = Orchestrator(app_config)
+
+    # Pass chaos flags to Orchestrator (from upstream)
+    orchestrator = Orchestrator(app_config, chaos=chaos, chaos_level=chaos_level)
+    
     try:
         if not silent:
             console.print("[bold green]🚀 Launching Chaos Kitten...[/bold green]")
         
         import asyncio
         results = asyncio.run(orchestrator.run())
+
+        # CORS Check from HEAD
         if cors and target_url:
             import httpx, asyncio
+            from chaos_kitten.brain.cors import analyze_cors
+            
             async def _cors_probe():
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get(target_url, headers={"Origin": "https://evil.example"})
-                    return dict(resp.headers)
+                    try:
+                        resp = await client.get(target_url, headers={"Origin": "https://evil.example"}, timeout=10.0)
+                        return dict(resp.headers)
+                    except Exception as e:
+                        if not silent:
+                             console.print(f"[yellow]CORS probe failed: {e}[/yellow]")
+                        return {}
+
             probe_headers = asyncio.run(_cors_probe())
-            cors_findings = analyze_cors({k.lower(): v for k, v in probe_headers.items()})
-            for f in cors_findings:
-                console.print(f"[bold yellow][CORS][/bold yellow] {f['severity'].upper()} - {f['issue']}")
-        
+            if probe_headers:
+                cors_findings = analyze_cors({k.lower(): v for k, v in probe_headers.items()})
+                for f in cors_findings:
+                    if not silent:
+                        console.print(f"[bold yellow][CORS][/bold yellow] {f['severity'].upper()} - {f['issue']}")
+
         # Check for orchestrator runtime errors
         if isinstance(results, dict) and results.get("status") == "failed":
-            console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
+            if not silent:
+                console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
             raise typer.Exit(code=1)
 
         # Handle --fail-on
@@ -260,7 +300,8 @@ def scan(
             try:
                 threshold_index = severity_levels.index(fail_on.lower())
             except ValueError:
-                console.print(f"[bold yellow]⚠️ Invalid fail-on level '{fail_on}', defaulting to critical[/bold yellow]")
+                if not silent:
+                    console.print(f"[bold yellow]⚠️ Invalid fail-on level '{fail_on}', defaulting to critical[/bold yellow]")
                 threshold_index = 3  # Default to critical
             
             vulnerabilities = results.get("vulnerabilities", [])
@@ -283,9 +324,10 @@ def scan(
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[bold red]❌ Scan failed:[/bold red] {e}")
-        # import traceback
-        # console.print(traceback.format_exc())
+        if not silent:
+            console.print(f"[bold red]❌ Scan failed:[/bold red] {e}")
+            # import traceback
+            # console.print(traceback.format_exc())
         raise typer.Exit(code=1)
 
 
@@ -427,7 +469,7 @@ def diff(
     # Only pre-scan critical findings exist (no endpoints to test) — exit without running orchestrator
     if endpoints_to_test_display == 0:
         console.print()
-        console.print("[bold yellow]ℹ️  No changed endpoints to test — critical findings already displayed above[/bold yellow]")
+        console.print("[bold yellow]⏩  No changed endpoints to test — critical findings already displayed above[/bold yellow]")
         if fail_on_critical:
             console.print(f"[bold red]❌ Found {len(critical_findings)} critical issue(s). Failing pipeline.[/bold red]")
             raise typer.Exit(code=1)
@@ -493,7 +535,7 @@ def diff(
 
     # Run orchestrator with diff mode
     console.print()
-    console.print(f"[bold cyan]🎯 Starting security scan on {'changed' if not full else 'all'} endpoints...[/bold cyan]")
+    console.print(f"[bold cyan]🚀 Starting security scan on {'changed' if not full else 'all'} endpoints...[/bold cyan]")
     console.print()
 
     from chaos_kitten.brain.orchestrator import Orchestrator

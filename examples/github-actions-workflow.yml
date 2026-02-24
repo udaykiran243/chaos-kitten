@@ -45,6 +45,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # Required if using adaptive features
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}        # Alternative
         run: |
+          # Generate SARIF report for GitHub Code Scanning
           chaos-kitten scan \
             --target "http://localhost:3000" \
             --spec "./openapi.json" \
@@ -53,19 +54,16 @@ jobs:
             --fail-on high \
             --silent
 
-      - name: Run JUnit Report Generation
-        if: always()
-        run: |
-            chaos-kitten scan \
+          # Generate JUnit report for Test Results (optional)
+          chaos-kitten scan \
             --target "http://localhost:3000" \
             --spec "./openapi.json" \
             --output "./security-reports" \
             --format junit \
-             --fail-on none \
-             --silent
+            --silent || true
 
       - name: Upload SARIF Results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()  # Upload results even if scan fails
         with:
           sarif_file: security-reports/results.sarif
