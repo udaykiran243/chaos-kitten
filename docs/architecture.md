@@ -43,6 +43,7 @@ The Brain is the AI-powered orchestrator that coordinates all security testing.
 - `recon.py` - Reconnaissance engine (subdomain enumeration, port scanning, fingerprinting)
 - `openapi_parser.py` - Parse OpenAPI/Swagger specs
 - `attack_planner.py` - Chain-of-Thought attack planning
+- `attack_chainer.py` - Multi-Endpoint Attack Chain Orchestration
 
 **How it works:**
 
@@ -137,6 +138,14 @@ Generates beautiful security reports.
 ## LLM Integration
 
 Chaos Kitten uses LLMs for intelligent reasoning:
+
+### Multi-Endpoint Attack Chain Orchestration
+
+Most pentest tools test endpoints in isolation. Chaos Kitten uses the LLM to reason about the API graph and automatically chain attacks across endpoints for multi-step exploitation.
+
+1. **Endpoint Graph**: Builds a directed graph from the OpenAPI schema by matching field names produced in responses to field names consumed in requests.
+2. **Attack Chain Planner**: The LLM analyzes the graph to propose multi-step attack sequences (e.g., Create User -> Get User Orders -> Delete Order).
+3. **Chain Executor**: Executes each proposed chain, capturing intermediate values (IDs, tokens) and feeding them into subsequent steps.
 
 ```python
 # Example: Reasoning about a field
