@@ -16,6 +16,12 @@ try:
     HAS_LANGGRAPH = True
 except (ImportError, TypeError):
     HAS_LANGGRAPH = False
+
+try:
+    from chaos_kitten.brain.adaptive_planner import AdaptivePayloadGenerator
+    HAS_ADAPTIVE = True
+except (ImportError, TypeError):
+    HAS_ADAPTIVE = False
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -25,19 +31,7 @@ from rich.progress import (
     TextColumn,
 )
 
-from chaos_kitten.brain.attack_planner import AttackPlanner, NaturalLanguagePlanner
-try:
-    from chaos_kitten.brain.adaptive_planner import AdaptivePayloadGenerator
-    HAS_ADAPTIVE = True
-except ImportError:
-    HAS_ADAPTIVE = False
-    AdaptivePayloadGenerator = None
-
-from chaos_kitten.brain.openapi_parser import OpenAPIParser
-from chaos_kitten.paws.analyzer import ResponseAnalyzer
-from chaos_kitten.litterbox.reporter import Reporter
-from chaos_kitten.paws.executor import Executor
-from chaos_kitten.brain.recon import ReconEngine
+# Deferred imports to avoid top-level dependency issues
 from chaos_kitten.utils.checkpoint import (
     CheckpointData,
     calculate_config_hash,
@@ -74,6 +68,7 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, 
         return {"recon_results": state["recon_results"]}
 
     try:
+        from chaos_kitten.brain.recon import ReconEngine
         engine = ReconEngine(app_config)
 
         # Run recon engine in an executor to avoid blocking the async loop
@@ -119,6 +114,7 @@ def parse_openapi(state: AgentState, app_config: Dict[str, Any] = None) -> Dict[
                 endpoints = []
         else:
             # Normal mode: parse full spec
+            from chaos_kitten.brain.openapi_parser import OpenAPIParser
             parser = OpenAPIParser(state["spec_path"])
             parser.parse()
             endpoints = parser.get_endpoints()
@@ -141,6 +137,7 @@ def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict
         console.print(f"[bold cyan]🎯 Planning attacks for goal:[/bold cyan] {goal}")
 
     try:
+        from chaos_kitten.brain.attack_planner import NaturalLanguagePlanner
         planner = NaturalLanguagePlanner(state["endpoints"], app_config)
         nl_plan = planner.plan(goal)
 
@@ -192,7 +189,8 @@ def plan_attacks(state: AgentState) -> Dict[str, Any]:
 
     # In future, we can inject recon data into the planner context here.
     # For now, we trust the LLM to deduce context from the endpoint itself.
-
+    
+    from chaos_kitten.brain.attack_planner import AttackPlanner
     planner = AttackPlanner([endpoint])
 
     # Extract NL-selected profiles if available
@@ -209,6 +207,7 @@ async def execute_and_analyze(
         return {"findings": state["findings"], "current_endpoint": idx}
 
     endpoint = state["endpoints"][idx]
+    from chaos_kitten.paws.analyzer import ResponseAnalyzer
     analyzer = ResponseAnalyzer()
 
     adaptive_config = app_config.get("adaptive", {}) or app_config.get("agent", {}).get("adaptive", {})
@@ -247,6 +246,8 @@ async def execute_and_analyze(
                 else:
                     raise ValueError(f"Unsupported LLM provider for adaptive mode: {provider}")
 
+                    
+                from chaos_kitten.brain.adaptive_planner import AdaptivePayloadGenerator
                 adaptive_gen = AdaptivePayloadGenerator(llm, max_rounds=max_rounds)
             except (ImportError, ValueError) as e:
                 logger.exception("Failed to set up adaptive LLM: %s", e)
@@ -517,6 +518,7 @@ class Orchestrator:
                         console.print(f"🔄 [bold yellow]Resuming scan from {time.ctime(checkpoint.timestamp)}[/bold yellow]")
                     # Fill state from checkpoint
                     # We need to parse first to get full endpoints list for progress total
+                    from chaos_kitten.brain.openapi_parser import OpenAPIParser
                     parser = OpenAPIParser(spec_path)
                     parser.parse()
                     endpoints = parser.get_endpoints()
@@ -568,6 +570,7 @@ class Orchestrator:
                     scan_task = None
                 
                 exec_cfg = self.config.get("executor", {}) or {}
+                from chaos_kitten.paws.executor import Executor
                 async with Executor(
                     base_url=target_url,
                     auth_type=exec_cfg.get("auth_type", "bearer"),
