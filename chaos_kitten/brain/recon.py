@@ -130,9 +130,14 @@ class ReconEngine:
                 try:
                     # socket.gethostbyname is blocking, so run it in a thread
                     loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, socket.gethostbyname, full_domain)
+                    await asyncio.wait_for(
+                        loop.run_in_executor(None, socket.gethostbyname, full_domain),
+                        timeout=self.timeout,
+                    )
                     found_subdomains.append(full_domain)
                     logger.debug(f"Found subdomain: {full_domain}")
+                except asyncio.TimeoutError:
+                    logger.debug(f"DNS lookup timed out for {full_domain}")
                 except socket.gaierror:
                     pass
                 except Exception as e:

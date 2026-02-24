@@ -72,7 +72,7 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, 
         return {"recon_results": {}}
 
 
-async def parse_openapi(state: AgentState) -> Dict[str, Any]:
+async def parse_openapi(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Parse the OpenAPI specification."""
     from chaos_kitten.brain.openapi_parser import OpenAPIParser
     
@@ -83,8 +83,13 @@ async def parse_openapi(state: AgentState) -> Dict[str, Any]:
     recon = state.get("recon_results", {})
     spec_path = recon.get("openapi_spec_path")
     
+    # Fall back to config target.openapi_spec if recon didn't find one
     if not spec_path:
-        console.print("[yellow]⚠️ No OpenAPI spec found during recon. Checking config...[/yellow]")
+        target_cfg = app_config.get("target", {})
+        spec_path = target_cfg.get("openapi_spec")
+    
+    if not spec_path:
+        console.print("[yellow]⚠️ No OpenAPI spec found during recon or config.[/yellow]")
         return {"openapi_spec": None}
         
     try:
@@ -99,22 +104,36 @@ async def parse_openapi(state: AgentState) -> Dict[str, Any]:
 
 async def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a high-level natural language attack plan."""
-    from chaos_kitten.brain.attack_planner import AttackPlanner
+    from chaos_kitten.brain.attack_planner import NaturalLanguagePlanner
     
     console.print("[bold blue]📝 Generating Natural Language Attack Plan...[/bold blue]")
     if state.get("nl_plan"):
         return {"nl_plan": state["nl_plan"]}
         
     try:
-        planner = AttackPlanner(app_config)
-        nl_plan = planner.generate_natural_language_plan(state.get("openapi_spec"))
+        # Extract endpoints from the parsed OpenAPI spec
+        spec = state.get("openapi_spec") or {}
+        endpoints = []
+        for path, methods in spec.get("paths", {}).items():
+            for method, details in methods.items():
+                if method.upper() in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+                    endpoints.append({
+                        "method": method.upper(),
+                        "path": path,
+                        "parameters": details.get("parameters", []),
+                        "requestBody": details.get("requestBody"),
+                    })
+
+        planner = NaturalLanguagePlanner(endpoints=endpoints, config=app_config)
+        goal = app_config.get("agent", {}).get("goal", "Find security vulnerabilities")
+        nl_plan = planner.plan(goal)
         return {"nl_plan": nl_plan}
     except Exception as e:
         logger.error(f"Failed to generate NL plan: {e}")
         return {"nl_plan": None}
 
 
-async def plan_attacks(state: AgentState) -> Dict[str, Any]:
+async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Plan specific attack vectors based on the API spec."""
     from chaos_kitten.brain.attack_planner import AttackPlanner
     
@@ -123,8 +142,27 @@ async def plan_attacks(state: AgentState) -> Dict[str, Any]:
         return {"planned_attacks": state["planned_attacks"]}
         
     try:
-        # Actually initializing the LLM and planning
-        return {"planned_attacks": [{"id": "placeholder", "type": "info_gathering", "method": "GET", "path": "/"}]}
+        # Extract endpoints from the parsed OpenAPI spec
+        spec = state.get("openapi_spec") or {}
+        endpoints = []
+        for path, methods in spec.get("paths", {}).items():
+            for method, details in methods.items():
+                if method.upper() in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+                    endpoints.append({
+                        "method": method.upper(),
+                        "path": path,
+                        "parameters": details.get("parameters", []),
+                        "requestBody": details.get("requestBody"),
+                    })
+
+        if not endpoints:
+            console.print("[yellow]⚠️ No endpoints found to plan attacks against.[/yellow]")
+            return {"planned_attacks": []}
+
+        planner = AttackPlanner(endpoints=endpoints)
+        planned = planner.plan_attacks()
+        console.print(f"[green]Planned {len(planned)} attack vectors.[/green]")
+        return {"planned_attacks": planned}
     except Exception as e:
         logger.error(f"Failed to plan attacks: {e}")
         return {"planned_attacks": []}
@@ -132,11 +170,42 @@ async def plan_attacks(state: AgentState) -> Dict[str, Any]:
 
 async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Execute planned attacks and analyze responses."""
-    from chaos_kitten.paws.analyzer import ResponseAnalyzer
+    from chaos_kitten.brain.response_analyzer import ResponseAnalyzer
     
     console.print("[bold blue]⚔️  Executing Attacks...[/bold blue]")
-    # Placeholder for actual execution logic
-    return {"results": [], "findings": []}
+
+    planned_attacks = state.get("planned_attacks", [])
+    if not planned_attacks:
+        console.print("[yellow]No attacks planned — skipping execution.[/yellow]")
+        return {"results": [], "findings": []}
+
+    target_cfg = app_config.get("target", {})
+    base_url = target_cfg.get("base_url", "")
+    analyzer = ResponseAnalyzer()
+    all_results = []
+    all_findings = []
+
+    for attack in planned_attacks:
+        try:
+            payload = {
+                "method": attack.get("method", "GET"),
+                "url": f"{base_url}{attack.get('path', '/')}",
+                "headers": attack.get("headers", {}),
+                "body": attack.get("body"),
+            }
+            response = await executor.execute(payload)
+            all_results.append(response)
+
+            finding = analyzer.analyze(response, attack)
+            if finding:
+                all_findings.extend(finding if isinstance(finding, list) else [finding])
+        except Exception as e:
+            logger.warning(f"Attack execution failed for {attack.get('path')}: {e}")
+
+    console.print(
+        f"[green]Executed {len(all_results)} attacks, found {len(all_findings)} potential vulnerabilities.[/green]"
+    )
+    return {"results": all_results, "findings": all_findings}
 
 
 def should_continue(state: AgentState) -> Literal["plan", "end"]:
@@ -180,19 +249,25 @@ class Orchestrator:
         if self.resume:
             checkpoint = load_checkpoint(self.checkpoint_file)
             if checkpoint:
-                initial_state.update(checkpoint.state)
+                # Restore available state from checkpoint fields
+                if checkpoint.recon_results:
+                    initial_state["recon_results"] = checkpoint.recon_results
+                if checkpoint.vulnerabilities:
+                    initial_state["findings"] = checkpoint.vulnerabilities
                 console.print("[bold green]🔄 Resuming from checkpoint...[/bold green]")
 
         try:
             final_state = await graph.ainvoke(initial_state)
             
             # Save checkpoint (implied success if we got here)
-            save_checkpoint(self.checkpoint_file, CheckpointData(
+            save_checkpoint(CheckpointData(
+                target_url=self.config.get("target", {}).get("base_url", ""),
                 config_hash=calculate_config_hash(self.config),
+                completed_profiles=[],
+                vulnerabilities=final_state.get("findings", []),
                 timestamp=time.time(),
-                state=final_state,
-                completed=True
-            ))
+                recon_results=final_state.get("recon_results", {}),
+            ), self.checkpoint_file)
 
             return {
                 "status": "success",
@@ -212,9 +287,9 @@ class Orchestrator:
 
         # Nodes
         workflow.add_node("recon", partial(run_recon, app_config=self.config))
-        workflow.add_node("parse", parse_openapi)
+        workflow.add_node("parse", partial(parse_openapi, app_config=self.config))
         workflow.add_node("nl_plan", partial(natural_language_plan, app_config=self.config))
-        workflow.add_node("plan", plan_attacks)
+        workflow.add_node("plan", partial(plan_attacks, app_config=self.config))
         workflow.add_node("execute", partial(execute_and_analyze, executor=executor, app_config=self.config))
 
         # Edges
