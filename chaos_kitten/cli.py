@@ -216,7 +216,8 @@ def scan(
 
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
-    orchestrator = Orchestrator(app_config, resume=resume)
+    import asyncio
+    
     try:
         if not silent:
             console.print("[bold green]🚀 Launching Chaos Kitten...[/bold green]")
@@ -227,13 +228,18 @@ def scan(
         if spec:
             app_config.setdefault("target", {})["openapi_spec"] = spec
         if output:
-            cfg.setdefault("reporting", {})["output_path"] = output
+            app_config.setdefault("reporting", {})["output_path"] = output
         if format:
             app_config.setdefault("reporting", {})["format"] = format
         if provider:
             app_config.setdefault("agent", {})["llm_provider"] = provider
             
-        orchestrator = Orchestrator(app_config, chaos=chaos, chaos_level=chaos_level)
+        orchestrator = Orchestrator(
+            app_config, 
+            chaos=chaos, 
+            chaos_level=chaos_level, 
+            resume=resume
+        )
         results = asyncio.run(orchestrator.run())
         
         # Check for orchestrator runtime errors
@@ -248,18 +254,24 @@ def scan(
             console.print(f"   Tested Endpoints: {summary.get('tested_endpoints', 0)} / {summary.get('total_endpoints', 0)}")
             console.print(f"   Vulnerabilities Found: [bold red]{summary.get('vulnerabilities_found', 0)}[/bold red]")
 
-        # Handle --fail-on-critical
+        # Handle failure thresholds
+        severity_map = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+        fail_threshold = severity_map.get(fail_on.lower(), 0)
+        
         if fail_on_critical:
-            vulnerabilities = results.get("vulnerabilities", [])
-            critical_vulns = [
-                v for v in vulnerabilities
-                if str(v.get("severity", "")).lower() == "critical"
-            ]
-            if critical_vulns:
-                console.print(f"[bold red]❌ Found {len(critical_vulns)} critical vulnerabilities. Failing pipeline.[/bold red]")
-                raise typer.Exit(code=1)
-            elif not silent:
-                console.print("[bold green]✅ No vulnerabilities found exceeding the failure threshold.[/bold green]")
+            fail_threshold = max(fail_threshold, 4)
+
+        vulnerabilities = results.get("findings", []) or results.get("vulnerabilities", [])
+        max_severity_found = 0
+        for v in vulnerabilities:
+            sev = str(v.get("severity", "low")).lower()
+            max_severity_found = max(max_severity_found, severity_map.get(sev, 1))
+
+        if fail_threshold > 0 and max_severity_found >= fail_threshold:
+            console.print(f"[bold red]❌ Scan failed: Found vulnerabilities meeting or exceeding '{fail_on}' threshold.[/bold red]")
+            raise typer.Exit(code=1)
+        elif not silent and fail_threshold > 0:
+            console.print("[bold green]✅ No vulnerabilities found exceeding the failure threshold.[/bold green]")
 
     except typer.Exit:
         raise
@@ -360,6 +372,12 @@ def diff(
             f"""[bold]Diff Summary:[/bold]
             {summary}
             """, title="Scan Summary", border_style="cyan"))
+
+        # Handle failure thresholds in diff
+        if fail_on_critical:
+            if diff_result.get("critical_findings", 0) > 0:
+                console.print(f"[bold red]❌ Found {diff_result['critical_findings']} critical findings. Failing pipeline.[/bold red]")
+                raise typer.Exit(code=1)
     except Exception as e:
         console.print(f"[bold red]💥 Error:[/bold red] {str(e)}")
         # If it's not a FileNotFoundError, we might want to see the traceback
