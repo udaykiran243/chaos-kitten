@@ -1,13 +1,14 @@
 """Security Report Generator."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 import json
 import logging
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound, TemplateError
+from chaos_kitten.litterbox.themes import get_theme
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class Reporter:
         output_format: str = "html",
         include_poc: bool = True,
         include_remediation: bool = True,
+        theme_config: Optional[Union[str, Dict[str, Any]]] = None,
     ) -> None:
         """Initialize the reporter.
 
@@ -41,11 +43,15 @@ class Reporter:
             output_format: Report format (html, markdown, json)
             include_poc: Include Proof of Concept scripts
             include_remediation: Include remediation suggestions
+            theme_config: Theme configuration for HTML reports.
+                Can be a preset name ("dark", "light", "corporate"),
+                a dict of overrides, or None for the default dark theme.
         """
         self.output_path = Path(output_path)
         self.output_format = output_format
         self.include_poc = include_poc
         self.include_remediation = include_remediation
+        self.theme = get_theme(theme_config)
 
         # Initialize template engine
         self._setup_template_engine()
@@ -380,6 +386,7 @@ class Reporter:
                 "medium_count": summary["severity_breakdown"]["medium"],
                 "low_count": summary["severity_breakdown"]["low"],
                 "vulnerabilities": processed_vulns,
+                "theme": self.theme,
             }
 
             # Load and render template
