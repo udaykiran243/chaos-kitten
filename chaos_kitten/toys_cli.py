@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -168,11 +169,10 @@ def install_toy(
             console.print("[cyan]Validating profile...[/cyan]")
 
             # Optional content audit for suspicious patterns
-            import re
             suspicious_patterns = [r'\.system\(', r'__import__']
             for pattern in suspicious_patterns:
                 if re.search(pattern, content):
-                    logger.warning(f"Profile contains suspicious pattern: {pattern}")
+                    console.print(f"[yellow]⚠️ Profile contains suspicious pattern: {pattern}[/yellow]")
 
             # Save temporarily to validate schema
             temp_path = toys_dir / f".temp_{slug}{ext}"
