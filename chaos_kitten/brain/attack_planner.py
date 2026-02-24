@@ -11,11 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
-from langchain_anthropic import ChatAnthropic
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
+# Moving langchain imports to local scope to prevent crashes during pre-flight checks
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +85,10 @@ class AttackPlanner:
         self.load_attack_profiles()
 
     def _init_llm(self) -> Any:
+        from langchain_anthropic import ChatAnthropic
+        from langchain_openai import ChatOpenAI
+        from langchain_ollama import ChatOllama
+
         if self.llm_provider == "anthropic":
             return ChatAnthropic(
                 model="claude-3-5-sonnet-20241022", temperature=self.temperature
@@ -196,6 +196,9 @@ class AttackPlanner:
 
         attacks: list[dict[str, Any]] = []
         try:
+            from langchain_core.prompts import ChatPromptTemplate
+            from langchain_core.output_parsers import JsonOutputParser
+            
             prompt = ChatPromptTemplate.from_template(ATTACK_PLANNING_PROMPT)
             chain = prompt | self.llm | JsonOutputParser()
             generated = chain.invoke(
@@ -602,6 +605,9 @@ class AttackPlanner:
 
     def suggest_payloads(self, attack_type: str, context: dict[str, Any]) -> list[str]:
         """Generate context-specific payloads using LLM intelligence."""
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import JsonOutputParser
+        
         prompt = ChatPromptTemplate.from_template(PAYLOAD_SUGGESTION_PROMPT)
         chain = prompt | self.llm | JsonOutputParser()
 
@@ -616,6 +622,8 @@ class AttackPlanner:
 
     def reason_about_field(self, field_name: str, field_type: str) -> str:
         """Use LLM to reason about potential vulnerabilities for a field."""
+        from langchain_core.prompts import ChatPromptTemplate
+        
         prompt = ChatPromptTemplate.from_template(REASONING_PROMPT)
         chain = prompt | self.llm
 
@@ -705,13 +713,17 @@ class NaturalLanguagePlanner:
         model = agent_config.get("model", default_models.get(provider, "claude-3-5-sonnet-20241022"))
 
         if provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(model=model, temperature=temperature)
         elif provider == "openai":
+            from langchain_openai import ChatOpenAI
             return ChatOpenAI(model=model, temperature=temperature)
         elif provider == "ollama":
+            from langchain_ollama import ChatOllama
             return ChatOllama(model=model, temperature=temperature)
         else:
             logger.warning("Unknown provider %s, defaulting to Anthropic", provider)
+            from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(model=model, temperature=temperature)
 
     def plan(self, goal: str) -> dict[str, Any]:
@@ -747,6 +759,9 @@ class NaturalLanguagePlanner:
         profiles_str = json.dumps(attack_profiles, indent=2)
 
         # Create prompt
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import JsonOutputParser
+        
         prompt = ChatPromptTemplate.from_template(NATURAL_LANGUAGE_PLANNING_PROMPT)
         parser = JsonOutputParser()
         chain = prompt | self.llm | parser

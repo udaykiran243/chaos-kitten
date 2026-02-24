@@ -1,8 +1,11 @@
 """Chaos Kitten CLI - Command Line Interface."""
 import typer
 import logging
+import os
+import shutil
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from chaos_kitten.brain.cors import analyze_cors
 
 logger = logging.getLogger(__name__)
@@ -149,6 +152,21 @@ def scan(
         min=1,
         max=5,
     ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Resume a previous scan",
+    ),
+    goal: str = typer.Option(
+        None,
+        "--goal",
+        help="Specific goal for the scan",
+    ),
+    fail_on_critical: bool = typer.Option(
+        False,
+        "--fail-on-critical",
+        help="Exit with code 1 if critical vulnerabilities found",
+    ),
 ):
     """Scan an API for security vulnerabilities."""
     if not silent:
@@ -177,11 +195,9 @@ def scan(
     # Build configuration
     app_config = {}
     
-    try:
-        from chaos_kitten.brain.orchestrator import Orchestrator
-        from chaos_kitten.litterbox.reporter import Reporter
-        import asyncio
-        
+    from chaos_kitten.brain.orchestrator import Orchestrator
+    from chaos_kitten.litterbox.reporter import Reporter
+    import asyncio
     if output:
         if "reporting" not in app_config: app_config["reporting"] = {}
         app_config["reporting"]["output_path"] = output
@@ -207,17 +223,17 @@ def scan(
         
         # Override with CLI args
         if target:
-            cfg.setdefault("target", {})["base_url"] = target
+            app_config.setdefault("target", {})["base_url"] = target
         if spec:
-            cfg.setdefault("target", {})["openapi_spec"] = spec
+            app_config.setdefault("target", {})["openapi_spec"] = spec
         if output:
             cfg.setdefault("reporting", {})["output_path"] = output
         if format:
-            cfg.setdefault("reporting", {})["format"] = format
+            app_config.setdefault("reporting", {})["format"] = format
         if provider:
-            cfg.setdefault("agent", {})["llm_provider"] = provider
+            app_config.setdefault("agent", {})["llm_provider"] = provider
             
-        orchestrator = Orchestrator(cfg, chaos=chaos, chaos_level=chaos_level)
+        orchestrator = Orchestrator(app_config, chaos=chaos, chaos_level=chaos_level)
         results = asyncio.run(orchestrator.run())
         
         # Check for orchestrator runtime errors
@@ -303,45 +319,47 @@ def diff(
     console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten - Diff Mode", border_style="magenta"))
     console.print()
 
-    # Load specs
-    import json
-    import yaml
-    from pathlib import Path
-    from chaos_kitten.brain.spec_differ import SpecDiffer
+    try:
+        # Load specs
+        import json
+        import yaml
+        from pathlib import Path
+        from chaos_kitten.brain.spec_differ import SpecDiffer
 
-    def load_spec(path: str) -> dict:
-        """Load OpenAPI spec from JSON or YAML."""
-        spec_path = Path(path)
-        if not spec_path.exists():
-            console.print(f"[bold red]❌ File not found:[/bold red] {path}")
-            raise typer.Exit(code=1)
+        def load_spec(path: str) -> dict:
+            """Load OpenAPI spec from JSON or YAML."""
+            spec_path = Path(path)
+            if not spec_path.exists():
+                console.print(f"[bold red]❌ File not found:[/bold red] {path}")
+                raise typer.Exit(code=1)
 
-        content = spec_path.read_text(encoding="utf-8")
-        try:
-            if spec_path.suffix in [".yaml", ".yml"]:
-                return yaml.safe_load(content)
-            else:
-                return json.loads(content)
-        except Exception as e:
-            console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
-            raise typer.Exit(code=1)
+            content = spec_path.read_text(encoding="utf-8")
+            try:
+                if spec_path.suffix in [".yaml", ".yml"]:
+                    return yaml.safe_load(content)
+                else:
+                    return json.loads(content)
+            except Exception as e:
+                console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
+                raise typer.Exit(code=1)
 
-    old_spec = load_spec(old)
-    new_spec = load_spec(new)
+        old_spec = load_spec(old)
+        new_spec = load_spec(new)
 
-    # Compute diff
-    console.print("[bold cyan]📊 Computing API diff...[/bold cyan]")
-    differ = SpecDiffer(old_spec, new_spec)
-    diff_result = differ.compute_diff()
+        # Compute diff
+        console.print("[bold cyan]📊 Computing API diff...[/bold cyan]")
+        differ = SpecDiffer(old_spec, new_spec)
+        diff_result = differ.compute_diff()
 
-    summary = diff_result["summary"]
-    critical_findings = diff_result["critical_findings"]
+        summary = diff_result["summary"]
+        critical_findings = diff_result["critical_findings"]
 
-    # Display diff summary
-    console.print()
-    console.print(Panel(
-        f"""[bold]Diff Summary:[/bold]
-        
+        # Display diff summary
+        console.print()
+        console.print(Panel(
+            f"""[bold]Diff Summary:[/bold]
+            {summary}
+            """, title="Scan Summary", border_style="cyan"))
     except Exception as e:
         console.print(f"[bold red]💥 Error:[/bold red] {str(e)}")
         # If it's not a FileNotFoundError, we might want to see the traceback
@@ -415,6 +433,73 @@ def validate_profiles(
         raise typer.Exit(code=1)
     else:
         console.print("[bold green]✅ All profiles valid![/bold green]")
+
+
+@app.command()
+def preflight():
+    """Verify system and library dependencies."""
+    console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten - Pre-flight Check", border_style="magenta"))
+    
+    table = Table(title="Dependency Status")
+    table.add_column("Dependency", style="cyan")
+    table.add_column("Type", style="blue")
+    table.add_column("Status", style="bold")
+    table.add_column("Details", style="italic")
+
+    # 1. Check for Nmap
+    nmap_path = shutil.which("nmap")
+    if nmap_path:
+        table.add_row("Nmap", "System Utility", "✅", f"Found at {nmap_path}")
+    else:
+        table.add_row("Nmap", "System Utility", "❌", "Not found in PATH")
+
+    # 2. Check for Playwright
+    try:
+        import playwright
+        table.add_row("Playwright", "Python Library", "✅", "Installed and importable")
+    except ImportError:
+        table.add_row("Playwright", "Python Library", "❌", "Not installed")
+
+    # 3. Check for LangGraph
+    try:
+        import langgraph
+        table.add_row("LangGraph", "Python Library", "✅", "Installed and importable")
+    except ImportError:
+        table.add_row("LangGraph", "Python Library", "❌", "Not installed")
+
+    # 4. Check for Anthropic API Key
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        # Mask the key
+        masked = f"{anthropic_key[:4]}...{anthropic_key[-4:]}" if len(anthropic_key) > 8 else "****"
+        table.add_row("ANTHROPIC_API_KEY", "Environment Variable", "✅", f"Set (ending in {masked[-4:]})")
+    else:
+        table.add_row("ANTHROPIC_API_KEY", "Environment Variable", "❌", "Not set")
+
+    # 5. Check for OpenAI API Key (Bonus)
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        masked = f"{openai_key[:4]}...{openai_key[-4:]}" if len(openai_key) > 8 else "****"
+        table.add_row("OPENAI_API_KEY", "Environment Variable", "✅", f"Set (ending in {masked[-4:]})")
+    else:
+        table.add_row("OPENAI_API_KEY", "Environment Variable", "❌", "Not set (optional)")
+
+    console.print(table)
+    
+    # Summary of findings
+    missing_critical = []
+    if not nmap_path: missing_critical.append("Nmap")
+    
+    if missing_critical:
+        console.print(f"\n[bold red]⚠️  Critical system dependencies missing: {', '.join(missing_critical)}[/bold red]")
+        console.print("[yellow]Please install these before running a scan to avoid crashes.[/yellow]")
+    
+    if not anthropic_key and not openai_key:
+        console.print("\n[bold yellow]⚠️  No LLM API keys found.[/bold yellow]")
+        console.print("[yellow]Scanner will fail to initialize the brain without an API key.[/yellow]")
+
+    console.print()
+
 
 if __name__ == "__main__":
     app()
