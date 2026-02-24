@@ -1,4 +1,5 @@
 """Chaos Kitten CLI - Command Line Interface."""
+
 import typer
 import logging
 import os
@@ -15,7 +16,7 @@ app = typer.Typer(
     help="🐱 Chaos Kitten - The adorable AI agent that knocks things off your API tables",
     add_completion=False,
 )
-
+app.add_typer(toys_app, name="toys")
 
 console = Console()
 
@@ -33,7 +34,6 @@ ASCII_CAT = r"""
 @app.command()
 def version():
     """Show version information."""
-    from chaos_kitten import __version__
     console.print(f"[bold magenta]Chaos Kitten[/bold magenta] v{__version__}")
 
 
@@ -44,9 +44,14 @@ def init():
 target:
   base_url: "http://localhost:3000"
   openapi_spec: "./openapi.json"
-  auth:
-    type: "bearer"  # bearer, basic, none
-    token: "${API_TOKEN}"
+
+auth:
+  type: "bearer"  # bearer, basic, none
+  token: "${API_TOKEN}"
+  # MFA/TOTP Support (Requires 'mfa' extra: pip install .[mfa])
+  totp_secret: ""
+  totp_endpoint: ""
+  totp_field: "code"
 
 agent:
   llm_provider: "anthropic"  # anthropic, openai, ollama
@@ -108,13 +113,13 @@ def scan(
         help="Path to OpenAPI spec (overrides config)",
     ),
     output: str = typer.Option(
-        None,
+        "./reports",
         "--output",
         "-o",
         help="Directory to save the security report",
     ),
     format: str = typer.Option(
-        None,
+        "html",
         "--format",
         "-f",
         help="Format of the report (html, markdown, json, sarif, junit)",
@@ -139,6 +144,17 @@ def scan(
         False,
         "--demo",
         help="Run scan against the demo vulnerable API",
+    ),
+    goal: str = typer.Option(
+        None,
+        "--goal",
+        "-g",
+        help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
+    ),
+    cors: bool = typer.Option(
+        False,
+        "--cors",
+        help="Run CORS misconfiguration scan",
     ),
     chaos: bool = typer.Option(
         False,
@@ -201,6 +217,8 @@ def scan(
     if provider:
         app_config.setdefault("agent", {})["llm_provider"] = provider
 
+    app_config["silent"] = silent
+
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
     import asyncio
@@ -208,10 +226,33 @@ def scan(
     try:
         orchestrator = Orchestrator(app_config, chaos=chaos, chaos_level=chaos_level, resume=resume)
         results = asyncio.run(orchestrator.run())
-        
+
+        # CORS Check from HEAD
+        if cors and target_url:
+            import httpx, asyncio
+            from chaos_kitten.brain.cors import analyze_cors
+            
+            async def _cors_probe():
+                async with httpx.AsyncClient() as client:
+                    try:
+                        resp = await client.get(target_url, headers={"Origin": "https://evil.example"}, timeout=10.0)
+                        return dict(resp.headers)
+                    except Exception as e:
+                        if not silent:
+                             console.print(f"[yellow]CORS probe failed: {e}[/yellow]")
+                        return {}
+
+            probe_headers = asyncio.run(_cors_probe())
+            if probe_headers:
+                cors_findings = analyze_cors({k.lower(): v for k, v in probe_headers.items()})
+                for f in cors_findings:
+                    if not silent:
+                        console.print(f"[bold yellow][CORS][/bold yellow] {f['severity'].upper()} - {f['issue']}")
+
         # Check for orchestrator runtime errors
         if isinstance(results, dict) and results.get("status") == "failed":
-            console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
+            if not silent:
+                console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
             raise typer.Exit(code=1)
 
         # Display summary
@@ -393,6 +434,48 @@ def preflight():
     else:
         console.print("\n[bold green]✅ Environment is ready for basic scanning![/bold green]")
 
+
+    from chaos_kitten.brain.orchestrator import Orchestrator
+
+    orchestrator = Orchestrator(app_config)
+    try:
+        import asyncio
+        results = asyncio.run(orchestrator.run())
+
+        # Check for orchestrator runtime errors
+        if isinstance(results, dict) and results.get("status") == "failed":
+            console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
+            raise typer.Exit(code=1)
+
+        # Handle --fail-on-critical (including pre-scan findings)
+        if fail_on_critical:
+            vulnerabilities = results.get("vulnerabilities", [])
+            critical_vulns = [
+                v for v in vulnerabilities 
+                if str(v.get("severity", "")).lower() == "critical"
+            ]
+            # Note: orchestrator already injected critical_findings into vulnerabilities, so no need to add again
+            total_critical = len(critical_vulns)
+            
+            if total_critical > 0:
+                console.print(f"[bold red]❌ Found {total_critical} critical issue(s). Failing pipeline.[/bold red]")
+                raise typer.Exit(code=1)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]❌ Diff scan failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def interactive():
+    """Start interactive mode."""
+    from chaos_kitten.console.repl import ChaosREPL
+    import asyncio
+    
+    repl = ChaosREPL(console)
+    asyncio.run(repl.start())
 
 @app.command()
 def meow():

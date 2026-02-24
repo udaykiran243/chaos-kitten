@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import defaultdict
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict
@@ -48,27 +49,29 @@ class AgentState(TypedDict):
     nl_plan: Optional[Dict[str, Any]]  # Natural language planning results
 
 
-async def run_recon(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
+async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool = False) -> Dict[str, Any]:
     """Run the reconnaissance engine."""
     from chaos_kitten.brain.recon import ReconEngine
     
     console.print("[bold blue]🔍 Starting Reconnaissance Phase...[/bold blue]")
     if state.get("recon_results"):
-        console.print("[yellow]⏭️ Skipping recon (results loaded from checkpoint)[/yellow]")
+        if not silent:
+            console.print("[yellow]✨ Skipping recon (results loaded from checkpoint)[/yellow]")
         return {"recon_results": state["recon_results"]}
-        
+
     try:
         engine = ReconEngine(app_config)
         results = await engine.run()
 
-        if results:
+        if results and not silent:
             subs = len(results.get('subdomains', []))
             techs = len(results.get('technologies', {}))
             console.print(f"[green]Recon complete: Found {subs} subdomains and fingerprint info for {techs} targets[/green]")
         return {"recon_results": results}
     except Exception as e:
         logger.exception("Reconnaissance failed")
-        console.print(f"[red]Reconnaissance failed: {e}[/red]")
+        if not silent:
+            console.print(f"[red]Reconnaissance failed: {e}[/red]")
         return {"recon_results": {}}
 
 
