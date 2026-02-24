@@ -81,7 +81,7 @@ def test_missing_base_url_error(temp_config_file):
     data = {"target": {"type": "rest"}}
     path = temp_config_file(data)
     config = Config(path)
-    with pytest.raises(ValueError, match="Missing required field: target.base_url"):
+    with pytest.raises(ValueError, match="Missing required field: target\.base_url"):
         config.load()
 
 def test_missing_graphql_fields_error(temp_config_file):
@@ -95,7 +95,7 @@ def test_invalid_max_rounds_error(temp_config_file):
     data = {"target": {"base_url": "http://localhost"}, "adaptive": {"max_rounds": -1}}
     path = temp_config_file(data)
     config = Config(path)
-    with pytest.raises(ValueError, match="adaptive.max_rounds must be a positive integer"):
+    with pytest.raises(ValueError, match="adaptive\.max_rounds must be a positive integer"):
         config.load()
 
 def test_auth_default_totp_field(temp_config_file):

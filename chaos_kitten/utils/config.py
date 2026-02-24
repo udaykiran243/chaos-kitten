@@ -88,6 +88,11 @@ class Config:
             max_rounds = adaptive["max_rounds"]
             if not isinstance(max_rounds, int) or max_rounds < 1:
                 raise ValueError("adaptive.max_rounds must be a positive integer")
+                
+        # Set default for auth
+        if "auth" in self._config and isinstance(self._config["auth"], dict):
+            if "totp_field" not in self._config["auth"]:
+                self._config["auth"]["totp_field"] = "code"
     
     @property
     def target(self) -> Dict[str, Any]:
@@ -121,3 +126,8 @@ class Config:
     def adaptive(self) -> Dict[str, Any]:
         """Get adaptive configuration."""
         return self._config.get("adaptive", {})
+
+    @property
+    def auth(self) -> Dict[str, Any]:
+        """Get authentication configuration."""
+        return self._config.get("auth", {})
