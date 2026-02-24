@@ -10,13 +10,17 @@ try:
 except ImportError:
     __version__ = "0.0.0"
 
+from chaos_kitten.toys_cli import toys_app
+
 logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="chaos-kitten",
-    help="≡ƒÉ▒ Chaos Kitten - The adorable AI agent that knocks things off your API tables",
+    help="🐱 Chaos Kitten - The adorable AI agent that knocks things off your API tables",
     add_completion=False,
 )
+app.add_typer(toys_app, name="toys")
+
 console = Console()
 
 ASCII_CAT = r"""
@@ -82,7 +86,7 @@ reporting:
     with open("chaos-kitten.yaml", "w") as f:
         f.write(config_template.strip('"""'))
     
-    console.print("[green]Γ£ô[/green] Created chaos-kitten.yaml")
+    console.print("[green]✓[/green] Created chaos-kitten.yaml")
     console.print("Edit the file with your target API details.")
 
 
@@ -145,6 +149,11 @@ def scan(
         "-g",
         help="Natural language goal to target specific endpoints (e.g., 'test payment price manipulation')",
     ),
+    cors: bool = typer.Option(
+        False,
+        "--cors",
+        help="Run CORS misconfiguration scan",
+    ),
     chaos: bool = typer.Option(
         False,
         "--chaos",
@@ -160,38 +169,31 @@ def scan(
 ):
     """Scan an API for security vulnerabilities."""
     if not silent:
-        console.print(Panel(ASCII_CAT, title="≡ƒÉ▒ Chaos Kitten", border_style="magenta"))
+        console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten", border_style="magenta"))
         console.print()
 
     if demo:
         if not silent:
-            console.print("[bold cyan]≡ƒÄ« Running in DEMO mode![/bold cyan]")
+            console.print("[bold cyan]🎮 Running in DEMO mode![/bold cyan]")
         target = target or "http://localhost:5000"
         spec = spec or "examples/sample_openapi.json"
         
         if not silent:
-            console.print(f"≡ƒÄ» Target: {target}")
-            console.print(f"≡ƒôï Spec: {spec}")
+            console.print(f"🎯 Target: {target}")
+            console.print(f"📋 Spec: {spec}")
             console.print()
 
     # Check for API keys if using LLM providers
     import os
     if not demo and not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
         if not silent:
-            console.print("[bold red]Γ¥î I can't see![/bold red]")
+            console.print("[bold red]❌ I can't see![/bold red]")
             console.print("I need an [bold]ANTHROPIC_API_KEY[/bold] or [bold]OPENAI_API_KEY[/bold] to plan my mischief.")
             console.print("[dim]Please set one in your environment or .env file.[/dim]")
         
         if not demo:
-            # Check config or proceed with warning? 
-            # Original code raised error unless demo mode.
-            pass # We'll enforce later if orchestrator needs it, but let's stick to HEAD logic for a bit or Upstream logic...
-            # Upstream logic: warn only. HEAD logic: raise Exit.
-            # I will follow HEAD logic which is stricter but allow override if user knows what they do.
-            # Actually, let's just warn if provider is ollama?
-            if provider != "ollama":
-                 pass # Let HEAD logic prevail down below.
-    
+             if provider != "ollama":
+                pass
 
     # Build configuration
     app_config = {}
@@ -205,7 +207,7 @@ def scan(
         # It's okay if file doesn't exist AND we provided args
         if not target and not spec and not demo:
             if not silent:
-                console.print(f"[bold red]Γ¥î Config file not found: {config}[/bold red]")
+                console.print(f"[bold red]❌ Config file not found: {config}[/bold red]")
                 console.print("Run 'chaos-kitten init' or provide --target and --spec args.")
             raise typer.Exit(code=1)
     except Exception as e:
@@ -249,20 +251,47 @@ def scan(
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
     
-    # Pass chaos flags to Orchestrator
+    target_url = (
+        app_config.get("target", {}).get("base_url")
+        or app_config.get("api", {}).get("base_url")
+    )
+
+    # Pass chaos flags to Orchestrator (from upstream)
     orchestrator = Orchestrator(app_config, chaos=chaos, chaos_level=chaos_level)
     
     try:
         if not silent:
-            console.print("[bold green]≡ƒÜÇ Launching Chaos Kitten...[/bold green]")
+            console.print("[bold green]🚀 Launching Chaos Kitten...[/bold green]")
         
         import asyncio
         results = asyncio.run(orchestrator.run())
 
+        # CORS Check from HEAD
+        if cors and target_url:
+            import httpx, asyncio
+            from chaos_kitten.brain.cors import analyze_cors
+            
+            async def _cors_probe():
+                async with httpx.AsyncClient() as client:
+                    try:
+                        resp = await client.get(target_url, headers={"Origin": "https://evil.example"}, timeout=10.0)
+                        return dict(resp.headers)
+                    except Exception as e:
+                        if not silent:
+                             console.print(f"[yellow]CORS probe failed: {e}[/yellow]")
+                        return {}
+
+            probe_headers = asyncio.run(_cors_probe())
+            if probe_headers:
+                cors_findings = analyze_cors({k.lower(): v for k, v in probe_headers.items()})
+                for f in cors_findings:
+                    if not silent:
+                        console.print(f"[bold yellow][CORS][/bold yellow] {f['severity'].upper()} - {f['issue']}")
+
         # Check for orchestrator runtime errors
         if isinstance(results, dict) and results.get("status") == "failed":
             if not silent:
-                console.print(f"[bold red]Γ¥î Scan failed:[/bold red] {results.get('error')}")
+                console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
             raise typer.Exit(code=1)
 
         # Handle --fail-on
@@ -272,7 +301,7 @@ def scan(
                 threshold_index = severity_levels.index(fail_on.lower())
             except ValueError:
                 if not silent:
-                    console.print(f"[bold yellow]ΓÜá∩╕Å Invalid fail-on level '{fail_on}', defaulting to critical[/bold yellow]")
+                    console.print(f"[bold yellow]⚠️ Invalid fail-on level '{fail_on}', defaulting to critical[/bold yellow]")
                 threshold_index = 3  # Default to critical
             
             vulnerabilities = results.get("vulnerabilities", [])
@@ -287,16 +316,16 @@ def scan(
                         
             if max_severity_found >= threshold_index:
                 if not silent:
-                    console.print(f"[bold red]Γ¥î Found vulnerabilities of severity {severity_levels[max_severity_found].upper()} or higher. Failing pipeline.[/bold red]")
+                    console.print(f"[bold red]❌ Found vulnerabilities of severity {severity_levels[max_severity_found].upper()} or higher. Failing pipeline.[/bold red]")
                 raise typer.Exit(code=1)
             elif not silent:
-                console.print("[bold green]Γ£à No vulnerabilities found exceeding the failure threshold.[/bold green]")
+                console.print("[bold green]✅ No vulnerabilities found exceeding the failure threshold.[/bold green]")
 
     except typer.Exit:
         raise
     except Exception as e:
         if not silent:
-            console.print(f"[bold red]Γ¥î Scan failed:[/bold red] {e}")
+            console.print(f"[bold red]❌ Scan failed:[/bold red] {e}")
             # import traceback
             # console.print(traceback.format_exc())
         raise typer.Exit(code=1)
@@ -350,7 +379,7 @@ def diff(
     ),
 ):
     """API Spec Diff Scanning - Test only what changed between API versions."""
-    console.print(Panel(ASCII_CAT, title="≡ƒÉ▒ Chaos Kitten - Diff Mode", border_style="magenta"))
+    console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten - Diff Mode", border_style="magenta"))
     console.print()
 
     # Load specs
@@ -363,7 +392,7 @@ def diff(
         """Load OpenAPI spec from JSON or YAML."""
         spec_path = Path(path)
         if not spec_path.exists():
-            console.print(f"[bold red]Γ¥î File not found:[/bold red] {path}")
+            console.print(f"[bold red]❌ File not found:[/bold red] {path}")
             raise typer.Exit(code=1)
 
         content = spec_path.read_text(encoding="utf-8")
@@ -373,14 +402,14 @@ def diff(
             else:
                 return json.loads(content)
         except Exception as e:
-            console.print(f"[bold red]Γ¥î Failed to parse spec:[/bold red] {e}")
+            console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
             raise typer.Exit(code=1)
 
     old_spec = load_spec(old)
     new_spec = load_spec(new)
 
     # Compute diff
-    console.print("[bold cyan]≡ƒôè Computing API diff...[/bold cyan]")
+    console.print("[bold cyan]📊 Computing API diff...[/bold cyan]")
     differ = SpecDiffer(old_spec, new_spec)
     diff_result = differ.compute_diff()
 
@@ -392,13 +421,13 @@ def diff(
     console.print(Panel(
         f"""[bold]Diff Summary:[/bold]
         
-≡ƒôè Total endpoints in old spec: {summary['total_old']}
-≡ƒôè Total endpoints in new spec: {summary['total_new']}
+📊 Total endpoints in old spec: {summary['total_old']}
+📊 Total endpoints in new spec: {summary['total_new']}
 
-Γ₧ò [green]Added endpoints:[/green] {summary['added_count']}
-Γ₧û [yellow]Removed endpoints:[/yellow] {summary['removed_count']}
-≡ƒöä [cyan]Modified endpoints:[/cyan] {summary['modified_count']}
-Γ£ô [dim]Unchanged endpoints:[/dim] {summary['unchanged_count']}
+➕ [green]Added endpoints:[/green] {summary['added_count']}
+➖ [yellow]Removed endpoints:[/yellow] {summary['removed_count']}
+🔄 [cyan]Modified endpoints:[/cyan] {summary['modified_count']}
+✓ [dim]Unchanged endpoints:[/dim] {summary['unchanged_count']}
 """,
         title="API Spec Diff",
         border_style="cyan"
@@ -408,41 +437,41 @@ def diff(
     if critical_findings:
         console.print()
         console.print(Panel(
-            f"[bold red]≡ƒÜ¿ {len(critical_findings)} CRITICAL security regression(s) detected![/bold red]",
+            f"[bold red]🚨 {len(critical_findings)} CRITICAL security regression(s) detected![/bold red]",
             border_style="red"
         ))
         for finding in critical_findings:
-            console.print(f"  ΓÇó [red]{finding.method} {finding.path}[/red]: {finding.reason}")
+            console.print(f"  • [red]{finding.method} {finding.path}[/red]: {finding.reason}")
             for mod in finding.modifications or []:
                 console.print(f"    - {mod}")
         console.print()
 
     # Show what will be tested (display-only count; orchestrator uses spec/delta config)
     if full:
-        console.print("[bold yellow]ΓÜá∩╕Å  --full flag set: Testing ALL endpoints[/bold yellow]")
+        console.print("[bold yellow]⚠️  --full flag set: Testing ALL endpoints[/bold yellow]")
         endpoints_to_test_display = summary["total_new"]
     else:
         endpoints_to_test_display = summary["added_count"] + summary["modified_count"]
-        console.print(f"[bold green]Γ£ô Delta mode:[/bold green] Testing {endpoints_to_test_display} changed endpoints, skipping {summary['unchanged_count']} unchanged")
+        console.print(f"[bold green]✓ Delta mode:[/bold green] Testing {endpoints_to_test_display} changed endpoints, skipping {summary['unchanged_count']} unchanged")
 
     if endpoints_to_test_display == 0 and not critical_findings:
         console.print()
-        console.print("[bold green]Γ£à No changes detected! API is identical.[/bold green]")
+        console.print("[bold green]✅ No changes detected! API is identical.[/bold green]")
         return
 
     # Check for target URL when we have endpoints to test
     if endpoints_to_test_display > 0 and not target:
         console.print()
-        console.print("[bold red]Γ¥î Missing --base-url:[/bold red] Need target URL to test endpoints")
+        console.print("[bold red]❌ Missing --base-url:[/bold red] Need target URL to test endpoints")
         console.print("[dim]Example: --base-url https://api.example.com[/dim]")
         raise typer.Exit(code=1)
 
-    # Only pre-scan critical findings exist (no endpoints to test) ΓÇö exit without running orchestrator
+    # Only pre-scan critical findings exist (no endpoints to test) — exit without running orchestrator
     if endpoints_to_test_display == 0:
         console.print()
-        console.print("[bold yellow]Γä╣∩╕Å  No changed endpoints to test ΓÇö critical findings already displayed above[/bold yellow]")
+        console.print("[bold yellow]⏩  No changed endpoints to test — critical findings already displayed above[/bold yellow]")
         if fail_on_critical:
-            console.print(f"[bold red]Γ¥î Found {len(critical_findings)} critical issue(s). Failing pipeline.[/bold red]")
+            console.print(f"[bold red]❌ Found {len(critical_findings)} critical issue(s). Failing pipeline.[/bold red]")
             raise typer.Exit(code=1)
         return
 
@@ -506,7 +535,7 @@ def diff(
 
     # Run orchestrator with diff mode
     console.print()
-    console.print(f"[bold cyan]≡ƒÄ» Starting security scan on {'changed' if not full else 'all'} endpoints...[/bold cyan]")
+    console.print(f"[bold cyan]🚀 Starting security scan on {'changed' if not full else 'all'} endpoints...[/bold cyan]")
     console.print()
 
     from chaos_kitten.brain.orchestrator import Orchestrator
@@ -518,7 +547,7 @@ def diff(
 
         # Check for orchestrator runtime errors
         if isinstance(results, dict) and results.get("status") == "failed":
-            console.print(f"[bold red]Γ¥î Scan failed:[/bold red] {results.get('error')}")
+            console.print(f"[bold red]❌ Scan failed:[/bold red] {results.get('error')}")
             raise typer.Exit(code=1)
 
         # Handle --fail-on-critical (including pre-scan findings)
@@ -532,13 +561,13 @@ def diff(
             total_critical = len(critical_vulns)
             
             if total_critical > 0:
-                console.print(f"[bold red]Γ¥î Found {total_critical} critical issue(s). Failing pipeline.[/bold red]")
+                console.print(f"[bold red]❌ Found {total_critical} critical issue(s). Failing pipeline.[/bold red]")
                 raise typer.Exit(code=1)
 
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[bold red]Γ¥î Diff scan failed:[/bold red] {e}")
+        console.print(f"[bold red]❌ Diff scan failed:[/bold red] {e}")
         raise typer.Exit(code=1)
 
 
@@ -553,8 +582,8 @@ def interactive():
 
 @app.command()
 def meow():
-    """≡ƒÉ▒ Meow!"""
-    console.print(Panel(ASCII_CAT, title="≡ƒÉ▒ Meow!", border_style="magenta"))
+    """🐱 Meow!"""
+    console.print(Panel(ASCII_CAT, title="🐱 Meow!", border_style="magenta"))
     console.print("[italic]I'm going to knock some vulnerabilities off your API table![/italic]")
 
 
@@ -571,18 +600,18 @@ def validate_profiles(
     from chaos_kitten.validators import AttackProfileValidator
     import os
     
-    console.print(Panel(f"≡ƒöì Validating profiles in [bold]{path}[/bold]...", title="Profile Validator", border_style="blue"))
+    console.print(Panel(f"🔍 Validating profiles in [bold]{path}[/bold]...", title="Profile Validator", border_style="blue"))
     
     validator = AttackProfileValidator()
     
     if not os.path.exists(path):
-        console.print(f"[bold red]Γ¥î Directory not found:[/bold red] {path}")
+        console.print(f"[bold red]❌ Directory not found:[/bold red] {path}")
         raise typer.Exit(code=1)
         
     results = validator.validate_all_profiles(path)
     
     if not results:
-        console.print("[yellow]ΓÜá∩╕Å  No profiles found.[/yellow]")
+        console.print("[yellow]⚠️  No profiles found.[/yellow]")
         return
 
     has_errors = False
@@ -597,21 +626,21 @@ def validate_profiles(
         console.print(f"{status} [bold]{filename}[/bold]")
         
         for error in report.errors:
-            console.print(f"  Γ¥î {error}", style="red")
+            console.print(f"  ❌ {error}", style="red")
             
         for warning in report.warnings:
-            console.print(f"  ΓÜá∩╕Å  {warning}", style="yellow")
+            console.print(f"  ⚠️  {warning}", style="yellow")
             
         for suggestion in report.suggestions:
-            console.print(f"  ≡ƒÆí {suggestion}", style="blue")
+            console.print(f"  💡 {suggestion}", style="blue")
             
         console.print()
         
     if has_errors:
-        console.print("[bold red]Γ¥î Validation failed. Please fix key errors.[/bold red]")
+        console.print("[bold red]❌ Validation failed. Please fix key errors.[/bold red]")
         raise typer.Exit(code=1)
     else:
-        console.print("[bold green]Γ£à All profiles valid![/bold green]")
+        console.print("[bold green]✅ All profiles valid![/bold green]")
 
 if __name__ == "__main__":
     app()
