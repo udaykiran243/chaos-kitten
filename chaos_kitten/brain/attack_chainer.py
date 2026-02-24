@@ -36,7 +36,7 @@ class EndpointGraph:
             req_body = ep.get("requestBody", {})
             if req_body:
                 content = req_body.get("content", {})
-                for media_type, media_obj in content.items():
+                for _media_type, media_obj in content.items():
                     schema = media_obj.get("schema", {})
                     properties = schema.get("properties", {})
                     for prop_name in properties.keys():
@@ -48,7 +48,7 @@ class EndpointGraph:
                 if not str(status).startswith("2"):
                     continue
                 content = resp_obj.get("content", {})
-                for media_type, media_obj in content.items():
+                for _media_type, media_obj in content.items():
                     schema = media_obj.get("schema", {})
                     properties = schema.get("properties", {})
                     for prop_name in properties.keys():
@@ -81,8 +81,8 @@ class EndpointGraph:
 
 
 CHAIN_PLANNER_PROMPT = """You are an expert penetration tester.
-Given the following API endpoints and their data flow graph, propose 3-step attack chains that could expose authorization flaws or business logic vulnerabilities.
-A chain is a sequence of 3 endpoints where the output of one step is used as input for the next.
+Given the following API endpoints and their data flow graph, propose {max_chain_depth}-step attack chains that could expose authorization flaws or business logic vulnerabilities.
+A chain is a sequence of up to {max_chain_depth} endpoints where the output of one step is used as input for the next.
 
 API Graph:
 {graph_summary}
@@ -93,7 +93,7 @@ Endpoints Details:
 Return ONLY a JSON array of attack chains. Each chain must have:
 - "name": A short name for the attack chain.
 - "description": What the chain attempts to achieve.
-- "steps": An array of exactly 3 objects, each containing:
+- "steps": An array of up to {max_chain_depth} objects, each containing:
   - "endpoint_index": The integer index of the endpoint.
   - "method": The HTTP method.
   - "path": The endpoint path.
@@ -138,7 +138,7 @@ class AttackChainPlanner:
     def __init__(self, llm: BaseChatModel):
         self.llm = llm
         
-    async def plan_chains(self, endpoints: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def plan_chains(self, endpoints: List[Dict[str, Any]], max_chain_depth: int = 4) -> List[Dict[str, Any]]:
         """Generate attack chains based on the endpoint graph."""
         graph = EndpointGraph(endpoints)
         graph_summary = graph.get_graph_summary()
@@ -153,13 +153,14 @@ class AttackChainPlanner:
         try:
             result = await chain.ainvoke({
                 "graph_summary": graph_summary,
-                "endpoints_details": "\n".join(endpoints_details)
+                "endpoints_details": "\n".join(endpoints_details),
+                "max_chain_depth": max_chain_depth
             })
             if isinstance(result, list):
                 return result
             return []
         except Exception as e:
-            logger.error(f"Failed to plan attack chains: {e}")
+            logger.exception("Failed to plan attack chains")
             return []
 
 class ChainExecutor:
@@ -194,10 +195,22 @@ class ChainExecutor:
                 for var_name, field_name in step.get("injects", {}).items():
                     if var_name in variables:
                         payload[field_name] = variables[var_name]
+                    else:
+                        logger.warning(f"Missing variable '{var_name}' for step {i}, payload may be incomplete")
                         
                 # Execute attack
                 response = await self.executor.execute_attack(method, full_url, payload)
                 
+                # Check for execution error
+                if response.get("error"):
+                    errors.append({
+                        "step_index": i,
+                        "status": "failed",
+                        "step": step,
+                        "error": response["error"]
+                    })
+                    continue
+
                 # Extract variables from response
                 body = response.get("body", {})
                 if isinstance(body, str):
