@@ -5,6 +5,7 @@ Performs subdomain enumeration, port scanning, and technology fingerprinting.
 
 import socket
 import logging
+import asyncio
 import subprocess
 import shutil
 import re
@@ -38,8 +39,9 @@ class ReconEngine:
         self.scan_depth = self.config.get("scan_depth", "fast") # fast, medium, deep
         self.ports = self.config.get("ports", [80, 443])
         self.timeout = self.config.get("timeout", 5.0)
+        self.concurrency = self.config.get("concurrency", 10)
 
-    def run(self) -> Dict[str, Any]:
+    async def run(self) -> Dict[str, Any]:
         """
         Run the full reconnaissance process.
 
@@ -71,7 +73,7 @@ class ReconEngine:
         }
 
         # 1. Subdomain Enumeration
-        subdomains = self.enumerate_subdomains(domain)
+        subdomains = await self.enumerate_subdomains(domain)
         results["subdomains"] = subdomains
         logger.info(f"Found {len(subdomains)} subdomains.")
 
@@ -106,28 +108,39 @@ class ReconEngine:
 
         return results
 
-    def enumerate_subdomains(self, domain: str) -> List[str]:
+    async def enumerate_subdomains(self, domain: str) -> List[str]:
         """
-        Enumerate subdomains using DNS brute-force.
+        Enumerate subdomains using DNS brute-force concurrently.
         """
-        found_subdomains = []
         try:
              with open(self.wordlist_path, "r", encoding="utf-8") as f:
-                 subdomains = [line.strip() for line in f if line.strip()]
+                 subdomain_words = [line.strip() for line in f if line.strip()]
         except FileNotFoundError:
              logger.warning(f"Subdomain wordlist not found at {self.wordlist_path}. Skipping enumeration.")
              return []
 
-        logger.info(f"Brute-forcing {len(subdomains)} subdomains...")
+        logger.info(f"Brute-forcing {len(subdomain_words)} subdomains with concurrency {self.concurrency}...")
         
-        for sub in subdomains:
+        found_subdomains = []
+        semaphore = asyncio.Semaphore(self.concurrency)
+
+        async def check_subdomain(sub: str):
             full_domain = f"{sub}.{domain}"
-            try:
-                socket.gethostbyname(full_domain)
-                found_subdomains.append(full_domain)
-                logger.debug(f"Found subdomain: {full_domain}")
-            except socket.gaierror:
-                pass
+            async with semaphore:
+                try:
+                    # socket.gethostbyname is blocking, so run it in a thread
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, socket.gethostbyname, full_domain)
+                    found_subdomains.append(full_domain)
+                    logger.debug(f"Found subdomain: {full_domain}")
+                except socket.gaierror:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Error checking {full_domain}: {e}")
+
+        # Create tasks for all subdomains
+        tasks = [check_subdomain(sub) for sub in subdomain_words]
+        await asyncio.gather(*tasks)
         
         return found_subdomains
 

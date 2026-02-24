@@ -1,8 +1,11 @@
 """Chaos Kitten CLI - Command Line Interface."""
 import typer
 import logging
+import os
+import shutil
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from chaos_kitten.brain.cors import analyze_cors
 
 logger = logging.getLogger(__name__)
@@ -37,7 +40,7 @@ def version():
 @app.command()
 def init():
     """Initialize a new chaos-kitten.yaml configuration file."""
-    config_template = '''"""# Chaos Kitten Configuration
+    config_template = '''# Chaos Kitten Configuration
 target:
   base_url: "http://localhost:3000"
   openapi_spec: "./openapi.json"
@@ -75,10 +78,10 @@ reporting:
   output_path: "./reports"
   include_poc: true
   include_remediation: true
-"""'''
+'''
     
     with open("chaos-kitten.yaml", "w") as f:
-        f.write(config_template.strip('"""'))
+        f.write(config_template)
     
     console.print("[green]✓[/green] Created chaos-kitten.yaml")
     console.print("Edit the file with your target API details.")
@@ -149,6 +152,11 @@ def scan(
         min=1,
         max=5,
     ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Resume from last checkpoint",
+    ),
 ):
     """Scan an API for security vulnerabilities."""
     if not silent:
@@ -167,57 +175,38 @@ def scan(
             console.print()
 
     # Check for API keys if using LLM providers
-    import os
     if not demo and not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
         console.print("[yellow]⚠️  No LLM API key found (ANTHROPIC_API_KEY or OPENAI_API_KEY).[/yellow]")
         console.print("[yellow]    Some features like attack planning might not work.[/yellow]")
     elif not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
          console.print("[yellow]⚠️  Proceeding without API keys since we are in demo mode...[/yellow]")
     
-    # Build configuration
-    app_config = {}
-    
+    # Load configuration
+    from chaos_kitten.utils.config import Config
     try:
-        from chaos_kitten.brain.orchestrator import Orchestrator
-        from chaos_kitten.litterbox.reporter import Reporter
-        import asyncio
-        
+        cfg_loader = Config(config)
+        app_config = cfg_loader.load()
+    except FileNotFoundError:
+        app_config = {}
+    
+    # Override with CLI args
+    if target:
+        app_config.setdefault("target", {})["base_url"] = target
+    if spec:
+        app_config.setdefault("target", {})["openapi_spec"] = spec
     if output:
-        if "reporting" not in app_config: app_config["reporting"] = {}
-        app_config["reporting"]["output_path"] = output
-
+        app_config.setdefault("reporting", {})["output_path"] = output
     if format:
-        if "reporting" not in app_config: app_config["reporting"] = {}
-        app_config["reporting"]["format"] = format
-
+        app_config.setdefault("reporting", {})["format"] = format
     if provider:
-        if "agent" not in app_config: app_config["agent"] = {}
-        app_config["agent"]["llm_provider"] = provider
-
-    if goal:
-        if "agent" not in app_config: app_config["agent"] = {}
-        app_config["agent"]["goal"] = goal
+        app_config.setdefault("agent", {})["llm_provider"] = provider
 
     # Run the orchestrator
     from chaos_kitten.brain.orchestrator import Orchestrator
-    orchestrator = Orchestrator(app_config, resume=resume)
+    import asyncio
+    
     try:
-        if not silent:
-            console.print("[bold green]🚀 Launching Chaos Kitten...[/bold green]")
-        
-        # Override with CLI args
-        if target:
-            cfg.setdefault("target", {})["base_url"] = target
-        if spec:
-            cfg.setdefault("target", {})["openapi_spec"] = spec
-        if output:
-            cfg.setdefault("reporting", {})["output_path"] = output
-        if format:
-            cfg.setdefault("reporting", {})["format"] = format
-        if provider:
-            cfg.setdefault("agent", {})["llm_provider"] = provider
-            
-        orchestrator = Orchestrator(cfg, chaos=chaos, chaos_level=chaos_level)
+        orchestrator = Orchestrator(app_config, chaos=chaos, chaos_level=chaos_level, resume=resume)
         results = asyncio.run(orchestrator.run())
         
         # Check for orchestrator runtime errors
@@ -232,23 +221,12 @@ def scan(
             console.print(f"   Tested Endpoints: {summary.get('tested_endpoints', 0)} / {summary.get('total_endpoints', 0)}")
             console.print(f"   Vulnerabilities Found: [bold red]{summary.get('vulnerabilities_found', 0)}[/bold red]")
 
-        # Handle --fail-on-critical
-        if fail_on_critical:
-            vulnerabilities = results.get("vulnerabilities", [])
-            critical_vulns = [
-                v for v in vulnerabilities
-                if str(v.get("severity", "")).lower() == "critical"
-            ]
-            if critical_vulns:
-                console.print(f"[bold red]❌ Found {len(critical_vulns)} critical vulnerabilities. Failing pipeline.[/bold red]")
-                raise typer.Exit(code=1)
-            elif not silent:
-                console.print("[bold green]✅ No vulnerabilities found exceeding the failure threshold.[/bold green]")
-
     except typer.Exit:
         raise
     except Exception as e:
         console.print(f"[bold red]❌ Scan failed:[/bold red] {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         raise typer.Exit(code=1) from e
 
 
@@ -326,33 +304,95 @@ def diff(
             console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
             raise typer.Exit(code=1)
 
-    old_spec = load_spec(old)
-    new_spec = load_spec(new)
+    try:
+        old_spec = load_spec(old)
+        new_spec = load_spec(new)
 
-    # Compute diff
-    console.print("[bold cyan]📊 Computing API diff...[/bold cyan]")
-    differ = SpecDiffer(old_spec, new_spec)
-    diff_result = differ.compute_diff()
+        # Compute diff
+        console.print("[bold cyan]📊 Computing API diff...[/bold cyan]")
+        differ = SpecDiffer(old_spec, new_spec)
+        diff_result = differ.compute_diff()
 
-    summary = diff_result["summary"]
-    critical_findings = diff_result["critical_findings"]
+        # Display diff summary
+        console.print(Panel(
+            f"Endpoints: {len(diff_result.get('endpoints', []))} changed",
+            title="Diff Result",
+            border_style="cyan"
+        ))
 
-    # Display diff summary
-    console.print()
-    console.print(Panel(
-        f"""[bold]Diff Summary:[/bold]
+        # Run scan on diff
+        from chaos_kitten.brain.orchestrator import Orchestrator
+        import asyncio
         
+        app_config = {
+            "target": {"base_url": target, "openapi_spec": new},
+            "diff_mode": {"enabled": not full, "delta_endpoints": diff_result.get("endpoints", [])}
+        }
+        
+        orchestrator = Orchestrator(app_config)
+        asyncio.run(orchestrator.run())
+
     except Exception as e:
         console.print(f"[bold red]💥 Error:[/bold red] {str(e)}")
-        # If it's not a FileNotFoundError, we might want to see the traceback
-        if not isinstance(e, FileNotFoundError):
-            import traceback
-            logger.debug(traceback.format_exc())
+        import traceback
+        logger.debug(traceback.format_exc())
         raise typer.Exit(code=1)
+
+
+@app.command()
+def preflight():
+    """Verify system and library dependencies."""
+    console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten - Pre-flight Check", border_style="magenta"))
     
-    console.print()
-    console.print("🐾 [italic]Chaos Kitten is done![/italic]")
-    console.print()
+    table = Table(title="Dependency Status")
+    table.add_column("Dependency", style="cyan")
+    table.add_column("Type", style="magenta")
+    table.add_column("Status", style="green")
+    table.add_column("Message", style="white")
+
+    # 1. Check Nmap
+    nmap_path = shutil.which("nmap")
+    if nmap_path:
+        table.add_row("Nmap", "System Utility", "✅ Found", nmap_path)
+    else:
+        table.add_row("Nmap", "System Utility", "❌ Missing", "Please install nmap (apt install nmap, brew install nmap, etc.)")
+
+    # 2. Check Playwright
+    try:
+        import playwright
+        table.add_row("Playwright", "Python Library", "✅ Installed", f"v{playwright.__version__ if hasattr(playwright, '__version__') else 'unknown'}")
+    except ImportError:
+        table.add_row("Playwright", "Python Library", "❌ Missing", "Run: pip install playwright && playwright install")
+
+    # 3. Check LangGraph
+    try:
+        import langgraph
+        table.add_row("LangGraph", "Python Library", "✅ Installed", "Ready for agentic workflows")
+    except ImportError:
+        table.add_row("LangGraph", "Python Library", "❌ Missing", "Run: pip install langgraph")
+
+    # 4. Check API Keys
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        table.add_row("Anthropic API Key", "Environment Variable", "✅ Set", f"{anthropic_key[:4]}...{anthropic_key[-4:]}")
+    else:
+        table.add_row("Anthropic API Key", "Environment Variable", "⚠️  Not Set", "Attack planning will be limited")
+
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        table.add_row("OpenAI API Key", "Environment Variable", "✅ Set", f"{openai_key[:4]}...{openai_key[-4:]}")
+    else:
+        table.add_row("OpenAI API Key", "Environment Variable", "⚠️  Not Set", "OpenAI models will be unavailable")
+
+    console.print(table)
+    
+    # Critical dependency check
+    if not nmap_path:
+        console.print("\n[bold red]⚠️  Critical system dependencies missing: Nmap[/bold red]")
+        console.print("[yellow]Please install these before running a scan to avoid crashes.[/yellow]")
+    else:
+        console.print("\n[bold green]✅ Environment is ready for basic scanning![/bold green]")
+
 
 @app.command()
 def meow():
@@ -372,7 +412,6 @@ def validate_profiles(
 ):
     """Validate attack profiles for syntax and best practices."""
     from chaos_kitten.validators import AttackProfileValidator
-    import os
     
     console.print(Panel(f"🔍 Validating profiles in [bold]{path}[/bold]...", title="Profile Validator", border_style="blue"))
     
@@ -415,6 +454,7 @@ def validate_profiles(
         raise typer.Exit(code=1)
     else:
         console.print("[bold green]✅ All profiles valid![/bold green]")
+
 
 if __name__ == "__main__":
     app()
