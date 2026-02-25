@@ -322,28 +322,29 @@ def diff(
     console.print(Panel(ASCII_CAT, title="🐱 Chaos Kitten - Diff Mode", border_style="magenta"))
     console.print()
 
-    # Load specs
-    import json
-    import yaml
-    from pathlib import Path
-    from chaos_kitten.brain.spec_differ import SpecDiffer
+    try:
+        # Load specs
+        import json
+        import yaml
+        from pathlib import Path
+        from chaos_kitten.brain.spec_differ import SpecDiffer
 
-    def load_spec(path: str) -> dict:
-        """Load OpenAPI spec from JSON or YAML."""
-        spec_path = Path(path)
-        if not spec_path.exists():
-            console.print(f"[bold red]❌ File not found:[/bold red] {path}")
-            raise typer.Exit(code=1)
+        def load_spec(path: str) -> dict:
+            """Load OpenAPI spec from JSON or YAML."""
+            spec_path = Path(path)
+            if not spec_path.exists():
+                console.print(f"[bold red]❌ File not found:[/bold red] {path}")
+                raise typer.Exit(code=1)
 
-        content = spec_path.read_text(encoding="utf-8")
-        try:
-            if spec_path.suffix in [".yaml", ".yml"]:
-                return yaml.safe_load(content)
-            else:
-                return json.loads(content)
-        except Exception as e:
-            console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
-            raise typer.Exit(code=1)
+            content = spec_path.read_text(encoding="utf-8")
+            try:
+                if spec_path.suffix in [".yaml", ".yml"]:
+                    return yaml.safe_load(content)
+                else:
+                    return json.loads(content)
+            except Exception as e:
+                console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
+                raise typer.Exit(code=1)
 
     try:
         old_spec = load_spec(old)

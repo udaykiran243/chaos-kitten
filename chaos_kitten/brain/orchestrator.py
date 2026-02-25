@@ -60,6 +60,7 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool 
         return {"recon_results": state["recon_results"]}
 
     try:
+        from chaos_kitten.brain.recon import ReconEngine
         engine = ReconEngine(app_config)
         results = await engine.run()
 

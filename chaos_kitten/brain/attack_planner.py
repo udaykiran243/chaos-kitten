@@ -622,6 +622,8 @@ class AttackPlanner:
 
     def reason_about_field(self, field_name: str, field_type: str) -> str:
         """Use LLM to reason about potential vulnerabilities for a field."""
+        from langchain_core.prompts import ChatPromptTemplate
+        
         prompt = ChatPromptTemplate.from_template(REASONING_PROMPT)
         chain = prompt | self.llm
 
@@ -711,13 +713,17 @@ class NaturalLanguagePlanner:
         model = agent_config.get("model", default_models.get(provider, "claude-3-5-sonnet-20241022"))
 
         if provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(model=model, temperature=temperature)
         elif provider == "openai":
+            from langchain_openai import ChatOpenAI
             return ChatOpenAI(model=model, temperature=temperature)
         elif provider == "ollama":
+            from langchain_ollama import ChatOllama
             return ChatOllama(model=model, temperature=temperature)
         else:
             logger.warning("Unknown provider %s, defaulting to Anthropic", provider)
+            from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(model=model, temperature=temperature)
 
     def plan(self, goal: str) -> dict[str, Any]:
