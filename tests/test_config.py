@@ -67,35 +67,35 @@ def test_agent_default_max_concurrent_agents(temp_config_file):
 def test_non_dict_root_error(temp_config_file):
     path = temp_config_file(["this", "is", "a", "list", "not", "a", "dict"])
     config = Config(path)
-    with pytest.raises(ValueError, match="Configuration root must be a mapping/object"):
+    with pytest.raises(ValueError, match=r"Configuration root must be a mapping/object"):
         config.load()
 
 def test_missing_target_error(temp_config_file):
     data = {"other": "value"}
     path = temp_config_file(data)
     config = Config(path)
-    with pytest.raises(ValueError, match="Missing required configuration field: target"):
+    with pytest.raises(ValueError, match=r"Missing required configuration field: target"):
         config.load()
 
 def test_missing_base_url_error(temp_config_file):
     data = {"target": {"type": "rest"}}
     path = temp_config_file(data)
     config = Config(path)
-    with pytest.raises(ValueError, match="Missing required field: target\.base_url"):
+    with pytest.raises(ValueError, match=r"Missing required field: target\.base_url"):
         config.load()
 
 def test_missing_graphql_fields_error(temp_config_file):
     data = {"target": {"type": "graphql"}}
     path = temp_config_file(data)
     config = Config(path)
-    with pytest.raises(ValueError, match="GraphQL target requires either 'graphql_endpoint' or 'graphql_schema'"):
+    with pytest.raises(ValueError, match=r"GraphQL target requires either 'graphql_endpoint' or 'graphql_schema'"):
         config.load()
 
 def test_invalid_max_rounds_error(temp_config_file):
     data = {"target": {"base_url": "http://localhost"}, "adaptive": {"max_rounds": -1}}
     path = temp_config_file(data)
     config = Config(path)
-    with pytest.raises(ValueError, match="adaptive\.max_rounds must be a positive integer"):
+    with pytest.raises(ValueError, match=r"adaptive\.max_rounds must be an integer between 1 and 10"):
         config.load()
 
 def test_auth_default_totp_field(temp_config_file):
@@ -130,11 +130,11 @@ def test_property_getters(temp_config_file):
 def test_empty_file_error(temp_config_file):
     path = temp_config_file(None)  
     config = Config(path)
-    with pytest.raises(ValueError, match="Missing required configuration field: target"):
+    with pytest.raises(ValueError, match=r"Missing required configuration field: target"):
         config.load()
 
 def test_file_not_found_error(tmp_path):
     path = tmp_path / "nonexistent.yaml"
     config = Config(path)
-    with pytest.raises(FileNotFoundError, match="Configuration file not found"):
+    with pytest.raises(FileNotFoundError, match=r"Configuration file not found"):
         config.load()

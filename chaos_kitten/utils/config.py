@@ -86,8 +86,8 @@ class Config:
         adaptive = self._config.get("adaptive", {})
         if "max_rounds" in adaptive:
             max_rounds = adaptive["max_rounds"]
-            if not isinstance(max_rounds, int) or max_rounds < 1:
-                raise ValueError("adaptive.max_rounds must be a positive integer")
+            if not isinstance(max_rounds, int) or not (1 <= max_rounds <= 10):
+                raise ValueError("adaptive.max_rounds must be an integer between 1 and 10")
                 
         # Set default for auth
         if "auth" in self._config and isinstance(self._config["auth"], dict):
@@ -126,6 +126,11 @@ class Config:
     def adaptive(self) -> Dict[str, Any]:
         """Get adaptive configuration."""
         return self._config.get("adaptive", {})
+
+    @property
+    def checkpoint_path(self) -> Path:
+        """Get path to the checkpoint file."""
+        return Path(self._config.get("checkpoint_path", ".chaos-checkpoint.json"))
 
     @property
     def auth(self) -> Dict[str, Any]:
