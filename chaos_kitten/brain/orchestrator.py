@@ -173,7 +173,7 @@ async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[st
 
 async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Execute planned attacks and analyze responses."""
-    from chaos_kitten.brain.response_analyzer import ResponseAnalyzer
+    from chaos_kitten.paws.analyzer import ResponseAnalyzer
     
     console.print("[bold blue]⚔️  Executing Attacks...[/bold blue]")
 
@@ -233,7 +233,15 @@ class Orchestrator:
             return {"status": "failed", "error": "langgraph is not installed"}
 
         from chaos_kitten.paws.executor import Executor
-        executor = Executor(self.config)
+        target_cfg = self.config.get("target", {})
+        auth_cfg = self.config.get("auth", {})
+        executor = Executor(
+            base_url=target_cfg.get("base_url", ""),
+            auth_type=auth_cfg.get("type", "none"),
+            auth_token=auth_cfg.get("token"),
+            rate_limit=self.config.get("rate_limit", 10),
+            timeout=self.config.get("timeout", 30),
+        )
         
         graph = self._build_graph(executor)
         
