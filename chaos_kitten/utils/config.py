@@ -142,7 +142,3 @@ class Config:
         """Get path to the checkpoint file."""
         return Path(self._config.get("checkpoint_path", ".chaos-checkpoint.json"))
 
-    @property
-    def auth(self) -> Dict[str, Any]:
-        """Get authentication configuration."""
-        return self._config.get("auth", {})
