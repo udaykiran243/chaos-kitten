@@ -39,8 +39,8 @@ async def test_generate_payloads_success(adaptive_gen):
     response = {"status_code": 200, "body": "OK"}
     
     with patch("chaos_kitten.brain.adaptive_planner.ChatPromptTemplate") as mock_prompt:
-        mock_chain = MagicMock()
-        mock_chain.ainvoke = AsyncMock(return_value=["payload1", "payload2"])
+        mock_chain = AsyncMock()
+        mock_chain.ainvoke.return_value = ["payload1", "payload2"]
         mock_prompt.from_template.return_value.__or__.return_value.__or__.return_value = mock_chain
         
         payloads = await adaptive_gen.generate_payloads(endpoint, previous_payload, response)
@@ -53,8 +53,8 @@ async def test_generate_payloads_success(adaptive_gen):
 async def test_generate_payloads_error_handling(adaptive_gen):
     endpoint = {"method": "GET", "path": "/api/test"}
     with patch("chaos_kitten.brain.adaptive_planner.ChatPromptTemplate") as mock_prompt:
-        mock_chain = MagicMock()
-        mock_chain.ainvoke = AsyncMock(side_effect=Exception("LLM Error"))
+        mock_chain = AsyncMock()
+        mock_chain.ainvoke.side_effect = Exception("LLM Error")
         mock_prompt.from_template.return_value.__or__.return_value.__or__.return_value = mock_chain
         
         payloads = await adaptive_gen.generate_payloads(endpoint, "pkg", {})
@@ -86,7 +86,7 @@ async def test_orchestrator_adaptive_integration():
     
     # We mock AdaptivePayloadGenerator to return controlled payloads
     # and we patch sys.modules to simulate langchain_anthropic existence
-    with patch.dict("sys.modules", {"langchain_anthropic": MagicMock()}):
+    with patch.dict(sys.modules, {"langchain_anthropic": MagicMock()}):
         with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen:
              mock_gen_instance = MockGen.return_value
              mock_gen_instance.generate_payloads = AsyncMock(return_value=['{"p": 1}', '{"p": 2}'])
@@ -119,7 +119,7 @@ async def test_orchestrator_adaptive_max_rounds():
         }
     }
     
-    with patch.dict("sys.modules", {"langchain_anthropic": MagicMock()}):
+    with patch.dict(sys.modules, {"langchain_anthropic": MagicMock()}):
         with patch("chaos_kitten.brain.orchestrator.AdaptivePayloadGenerator") as MockGen:
             
             mock_gen_instance = MockGen.return_value
