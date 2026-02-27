@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from chaos_kitten.brain.cors import analyze_cors
+from chaos_kitten.toys_cli import toys_app
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +346,10 @@ def diff(
             except Exception as e:
                 console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
                 raise typer.Exit(code=1)
+
+    except ImportError:
+        console.print("[bold red]❌ Missing dependencies for diff mode.[/bold red]")
+        raise typer.Exit(code=1)
 
     try:
         old_spec = load_spec(old)

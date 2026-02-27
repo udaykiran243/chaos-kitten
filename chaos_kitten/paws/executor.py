@@ -8,6 +8,7 @@ import random
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
 import httpx
+import urllib.parse
 
 try:
     import pyotp
@@ -367,8 +368,11 @@ class Executor:
         """Setup request/response logging."""
         self._logger = logging.getLogger(f"{__name__}.traffic")
         self._logger.setLevel(logging.INFO)
-        # Prevent propagation to root logger to avoid console spam
-        self._logger.propagate = False
+        
+        # Suppress httpx info logs to prevent leaking sensitive data or double logging
+        httpx_logger = logging.getLogger("httpx")
+        httpx_logger.setLevel(logging.WARNING)
+        httpx_logger.propagate = False
         
         if self.enable_logging and self.log_file and not self._logger.handlers:
             formatter = logging.Formatter(
@@ -378,15 +382,51 @@ class Executor:
             file_handler.setFormatter(formatter)
             self._logger.addHandler(file_handler)
 
-    def _log_request(self, method: str, path: str, headers: Dict[str, str], payload: Any) -> None:
+    def _log_request(self, method: str, path: str, headers: Any, payload: Any) -> None:
         """Log outgoing request."""
         if not self.enable_logging:
             return
+
+        # Redact Headers
+        safe_headers = dict(headers)
+        for key in safe_headers:
+            if key.lower() in ("authorization", "x-api-key", "cookie"):
+                safe_headers[key] = "[REDACTED]"
             
+        # Redact Query Params
+        # We assume 'path' might contain query strings here? Or handled by requests params?
+        # The caller passes 'path' which might be just path buffer.
+        # But expected url in logs is full url with params.
+        # Wait, self.base_url + path. If path has query params, we need to cleanse.
+        
+        full_url = f"{self.base_url}{path}"
+        try:
+             parsed = urllib.parse.urlparse(full_url)
+             qs = urllib.parse.parse_qs(parsed.query)
+             sensitive_params = ["api_key", "token", "password", "secret", "client_secret"]
+             changed = False
+             for k in qs:
+                 if any(s in k.lower() for s in sensitive_params):
+                     qs[k] = ["[REDACTED]"]
+                     changed = True
+             
+             if changed:
+                 # Reconstruct query string
+                 # parse_qs checks returns lists. urlencode handles it.
+                 new_query = urllib.parse.urlencode(qs, doseq=True)
+                 full_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+        except Exception:
+             pass # Fail safe
+
+        # Truncate Payload
+        safe_payload = str(payload)
+        if len(safe_payload) > 500:
+            safe_payload = safe_payload[:500] + "... [truncated]"
+
         self._logger.info(
-            f"REQUEST: {method} {self.base_url}{path}\n"
-            f"Headers: {headers}\n"
-            f"Payload: {payload}"
+            f"REQUEST: {method} {full_url}\n"
+            f"Headers: {safe_headers}\n"
+            f"Payload: {safe_payload}"
         )
 
     def _log_response(self, status_code: int, elapsed_ms: float, body: str, error: Optional[str] = None) -> None:
@@ -396,11 +436,18 @@ class Executor:
             
         if error:
             self._logger.error(
-                f"RESPONSE ERROR ({elapsed_ms:.2f}ms): {error}"
+                f"RESPONSE ERROR (Time: {elapsed_ms:.2f}ms): {error}\n"
+                f"Body: {body}" # Log full body on error
+            )
+        elif status_code >= 400:
+            # Log full body for error responses at WARNING level
+            self._logger.warning(
+                f"RESPONSE (Time: {elapsed_ms:.2f}ms): Status: {status_code}\n"
+                f"Body: {body}" # Log full body for HTTP errors
             )
         else:
             self._logger.info(
-                f"RESPONSE ({elapsed_ms:.2f}ms): Status {status_code}\n"
+                f"RESPONSE (Time: {elapsed_ms:.2f}ms): Status: {status_code}\n"
                 f"Body: {body[:500]}..." # Log first 500 chars
             )
 

@@ -105,16 +105,37 @@ class TestOrchestrator:
             
         app.astream = mock_astream
         
+        # Mock ainvoke for compatibility with newer langgraph version
+        async def mock_ainvoke(state):
+            final_state = state.copy()
+            final_state["recon_results"] = {}
+            final_state["openapi_spec"] = {"paths": {"/users": {"get": {}}}}
+            final_state["planned_attacks"] = [{"type": "sql_injection", "payload": "' OR 1=1 --"}]
+            final_state["results"] = [{"status": 200}]  # Dummy result
+            final_state["findings"] = [{
+                "type": "SQL Injection",
+                "title": "SQL Injection",
+                "description": "SQLi detected",
+                "severity": "critical",
+                "endpoint": "GET /users",
+                "method": "GET",
+                "evidence": "Found SQL Error",
+                "payload": "' OR 1=1 --"
+            }]
+            return final_state
+            
+        app.ainvoke = mock_ainvoke
+
         # Run Orchestrator
         orchestrator = Orchestrator(config)
         results = await orchestrator.run()
         
         # Assertions
         assert "summary" in results
-        assert results["summary"]["total_endpoints"] == 1
+        assert results["summary"].get("tested_endpoints") == 1
         assert results["summary"]["vulnerabilities_found"] == 1
-        assert len(results["vulnerabilities"]) == 1
-        assert results["vulnerabilities"][0]["type"] == "SQL Injection"
+        assert len(results["findings"]) == 1
+        assert results["findings"][0]["type"] == "SQL Injection"
 
 
 class TestOpenAPIParser:

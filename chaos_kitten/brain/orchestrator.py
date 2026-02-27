@@ -16,6 +16,10 @@ try:
     HAS_LANGGRAPH = True
 except (ImportError, TypeError):
     HAS_LANGGRAPH = False
+    StateGraph = None
+    Graph = None
+    END = None
+    START = None
 
 from rich.console import Console
 from rich.progress import (
@@ -33,6 +37,12 @@ from chaos_kitten.utils.checkpoint import (
     load_checkpoint,
     save_checkpoint,
 )
+from chaos_kitten.brain.recon import ReconEngine
+from chaos_kitten.brain.openapi_parser import OpenAPIParser
+from chaos_kitten.brain.attack_planner import NaturalLanguagePlanner, AttackPlanner
+from chaos_kitten.paws.analyzer import ResponseAnalyzer
+from chaos_kitten.paws.executor import Executor
+from chaos_kitten.litterbox.reporter import Reporter
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -51,7 +61,6 @@ class AgentState(TypedDict):
 
 async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool = False) -> Dict[str, Any]:
     """Run the reconnaissance engine."""
-    from chaos_kitten.brain.recon import ReconEngine
     
     console.print("[bold blue]🔍 Starting Reconnaissance Phase...[/bold blue]")
     if state.get("recon_results"):
@@ -60,7 +69,6 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool 
         return {"recon_results": state["recon_results"]}
 
     try:
-        from chaos_kitten.brain.recon import ReconEngine
         engine = ReconEngine(app_config)
         results = await engine.run()
 
@@ -78,7 +86,6 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool 
 
 async def parse_openapi(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Parse the OpenAPI specification."""
-    from chaos_kitten.brain.openapi_parser import OpenAPIParser
     
     console.print("[bold blue]📖 Parsing OpenAPI Specification...[/bold blue]")
     if state.get("openapi_spec"):
@@ -108,7 +115,6 @@ async def parse_openapi(state: AgentState, app_config: Dict[str, Any]) -> Dict[s
 
 async def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a high-level natural language attack plan."""
-    from chaos_kitten.brain.attack_planner import NaturalLanguagePlanner
     
     console.print("[bold blue]📝 Generating Natural Language Attack Plan...[/bold blue]")
     if state.get("nl_plan"):
@@ -139,7 +145,6 @@ async def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -
 
 async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Plan specific attack vectors based on the API spec."""
-    from chaos_kitten.brain.attack_planner import AttackPlanner
     
     console.print("[bold blue]🎯 Planning Attack Vectors...[/bold blue]")
     if state.get("planned_attacks"):
@@ -174,7 +179,6 @@ async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[st
 
 async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Execute planned attacks and analyze responses."""
-    from chaos_kitten.paws.analyzer import ResponseAnalyzer
     
     console.print("[bold blue]⚔️  Executing Attacks...[/bold blue]")
 
@@ -240,7 +244,6 @@ class Orchestrator:
             console.print("[bold red]Error: langgraph is not installed.[/bold red]")
             return {"status": "failed", "error": "langgraph is not installed"}
 
-        from chaos_kitten.paws.executor import Executor
         target_cfg = self.config.get("target", {})
         auth_cfg = self.config.get("auth", {})
         
@@ -294,6 +297,23 @@ class Orchestrator:
                     timestamp=time.time(),
                     recon_results=final_state.get("recon_results", {}),
                 ), self.checkpoint_file)
+
+                # Generate report
+                reporter_cfg = self.config.get("reporting", {})
+                reporter = Reporter(
+                    output_path=reporter_cfg.get("output_path", "./reports"),
+                    output_format=reporter_cfg.get("format", "html"),
+                )
+                
+                target_url = target_cfg.get("base_url", "")
+                
+                report_file = reporter.generate(
+                    {"vulnerabilities": final_state.get("findings", [])}, target_url
+                )
+                
+                console.print(
+                    f"[bold cyan] Report generated:[/bold cyan] [underline]{report_file}[/underline]"
+                )
 
                 return {
                     "status": "success",
