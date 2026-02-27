@@ -235,7 +235,8 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                 console.print(f"[bold cyan]🔄 Executing workflow attack ({len(workflow_steps)} steps): {attack.get('name')}...[/bold cyan]")
                 
                 step_results = []
-                failed = False
+                step_results = []
+                for step in workflow_steps:
                 for step in workflow_steps:
                     step_payload = {
                         "method": step.get("method", "GET"),
