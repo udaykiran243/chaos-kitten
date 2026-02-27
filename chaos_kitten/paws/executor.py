@@ -2,12 +2,17 @@
 
 import asyncio
 import logging
+import re
 import time
 import random
+from datetime import datetime
 from typing import Any, Dict, Optional, Union
 import httpx
-import asyncio
-import time
+
+try:
+    import pyotp
+except ImportError:
+    pyotp = None
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +37,12 @@ class Executor:
         rate_limit: int = 10,
         timeout: int = 30,
         retry_config: Optional[Dict[str, Any]] = None,
+        # New MFA fields
+        totp_secret: Optional[str] = None,
+        totp_endpoint: Optional[str] = None,
+        totp_field: str = "code",
+        enable_logging: bool = False,
+        log_file: Optional[str] = None,
     ) -> None:
         """Initialize the executor.
         
@@ -42,6 +53,11 @@ class Executor:
             rate_limit: Maximum requests per second
             timeout: Request timeout in seconds
             retry_config: Configuration for retry logic
+            totp_secret: TOTP secret key for MFA
+            totp_endpoint: Endpoint to submit TOTP code
+            totp_field: JSON field name for TOTP code
+            enable_logging: Enable request/response logging
+            log_file: Optional file path to save logs
         
         Raises:
             ValueError: If auth_type is not supported.
@@ -63,9 +79,18 @@ class Executor:
         self.max_backoff = self.retry_config.get("max_backoff", 60.0)
         self.jitter = self.retry_config.get("jitter", True)
         
+        self.enable_logging = enable_logging
+        self.log_file = log_file
+
         self._client: Optional[httpx.AsyncClient] = None
         self._rate_limiter: Optional[asyncio.Semaphore] = None
         self._last_request_time: float = 0.0
+        self.totp_secret = totp_secret
+        self.totp_endpoint = totp_endpoint
+        self.totp_field = totp_field
+        
+        # Set up logging
+        self._setup_logging()
     
     async def __aenter__(self) -> "Executor":
         """Context manager entry."""
@@ -74,6 +99,9 @@ class Executor:
             timeout=self.timeout,
             headers=self._build_headers(),
         )
+        
+        await self._perform_mfa_auth()
+        
         # Initialize rate limiter semaphore
         self._rate_limiter = asyncio.Semaphore(self.rate_limit)
         return self
@@ -82,6 +110,12 @@ class Executor:
         """Context manager exit."""
         if self._client:
             await self._client.aclose()
+        
+        # Close file handler to prevent resource leak
+        if self.enable_logging and self.log_file and hasattr(self, '_logger'):
+             for handler in self._logger.handlers[:]:
+                handler.close()
+                self._logger.removeHandler(handler)
     
     def _build_headers(self) -> Dict[str, str]:
         """Build request headers including authentication."""
@@ -142,6 +176,14 @@ class Executor:
             response = None
             error_msg = None
             
+            # Log request (timestamp created inside if logging enabled)
+            self._log_request(
+                method=method,
+                path=path,
+                headers=request_headers,
+                payload=payload or graphql_query,
+            )
+
             try:
                 # Execute request based on method
                 if method == "GET":
@@ -207,6 +249,13 @@ class Executor:
                     "elapsed_ms": elapsed_ms,
                     "error": None,
                 }
+                
+                # Log response details
+                self._log_response(
+                   status_code=response.status_code,
+                   elapsed_ms=elapsed_ms,
+                   body=response.text[:1000] # Log first 1000 chars
+                )
 
                 # Check for 429 Rate Limit
                 if response.status_code == 429:
@@ -233,6 +282,7 @@ class Executor:
                 }
                 # Consider retrying on timeout? Usually yes, but 429 is the main focus here.
                 # Let's retry on timeout too if configured, but keeping scope to 429 for now as per issue.
+                self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
                 return last_result
 
             except (httpx.ConnectError, httpx.HTTPError) as e:
@@ -246,12 +296,14 @@ class Executor:
                      "elapsed_ms": elapsed_ms,
                      "error": error_msg,
                  }
+                 self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
                  return last_result
                  
             except Exception as e:
                  elapsed_ms = (time.perf_counter() - start_time) * 1000
                  error_msg = f"Unexpected error: {str(e)}"
                  logger.warning(f"Unexpected error executing {method} {path}: {e}")
+                 self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
                  return {
                      "status_code": 0,
                      "headers": {},
@@ -289,7 +341,7 @@ class Executor:
             
         logger.info(f"Rate limited (429). Retrying in {backoff:.2f}s (Attempt {attempt + 1}/{self.max_retries})")
         await asyncio.sleep(backoff)
-    
+
     async def _apply_rate_limit(self) -> None:
         """Apply rate limiting using token bucket algorithm."""
         if not self._rate_limiter:
@@ -310,3 +362,82 @@ class Executor:
             
             # Update last request time
             self._last_request_time = time.perf_counter()
+
+    def _setup_logging(self) -> None:
+        """Setup request/response logging."""
+        self._logger = logging.getLogger(f"{__name__}.traffic")
+        self._logger.setLevel(logging.INFO)
+        # Prevent propagation to root logger to avoid console spam
+        self._logger.propagate = False
+        
+        if self.enable_logging and self.log_file and not self._logger.handlers:
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            )
+            file_handler = logging.FileHandler(self.log_file)
+            file_handler.setFormatter(formatter)
+            self._logger.addHandler(file_handler)
+
+    def _log_request(self, method: str, path: str, headers: Dict[str, str], payload: Any) -> None:
+        """Log outgoing request."""
+        if not self.enable_logging:
+            return
+            
+        self._logger.info(
+            f"REQUEST: {method} {self.base_url}{path}\n"
+            f"Headers: {headers}\n"
+            f"Payload: {payload}"
+        )
+
+    def _log_response(self, status_code: int, elapsed_ms: float, body: str, error: Optional[str] = None) -> None:
+        """Log incoming response."""
+        if not self.enable_logging:
+            return
+            
+        if error:
+            self._logger.error(
+                f"RESPONSE ERROR ({elapsed_ms:.2f}ms): {error}"
+            )
+        else:
+            self._logger.info(
+                f"RESPONSE ({elapsed_ms:.2f}ms): Status {status_code}\n"
+                f"Body: {body[:500]}..." # Log first 500 chars
+            )
+
+    async def _perform_mfa_auth(self) -> None:
+        """Perform TOTP-based Multi-Factor Authentication."""
+        if not (self.totp_secret and self.totp_endpoint):
+            return
+
+        if not pyotp:
+            logger.warning("pyotp not installed. Skipping MFA.")
+            return
+
+        try:
+            totp = pyotp.TOTP(self.totp_secret)
+            code = totp.now()
+            
+            logger.info(f"Authenticating with MFA endpoint: {self.totp_endpoint}")
+            
+            response = await self._client.post(
+                self.totp_endpoint,
+                json={self.totp_field: code},
+                headers=self._build_headers()
+            )
+            
+            if response.status_code == 200:
+                # Assuming the response contains a new token or sets a session cookie
+                # If it returns a bear token, we might need to update auth_token
+                # For now, we assume it sets a session cookie which httpx client handles
+                logger.info("MFA Authentication successful")
+                
+                data = response.json()
+                if "token" in data:
+                    self.auth_token = data["token"]
+                    # Re-configure client default headers with new token
+                    self._client.headers.update(self._build_headers())
+            else:
+                logger.error(f"MFA Authentication failed: {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error performing MFA: {e}")
