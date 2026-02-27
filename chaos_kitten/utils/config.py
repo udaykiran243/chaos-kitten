@@ -133,6 +133,12 @@ class Config:
         return self._config.get("auth", {})
     
     @property
+    def adaptive(self) -> Dict[str, Any]:
+        """Get adaptive configuration."""
+        return self._config.get("adaptive", {})
+
+    @property
     def checkpoint_path(self) -> Path:
         """Get path to the checkpoint file."""
         return Path(self._config.get("checkpoint_path", ".chaos-checkpoint.json"))
+
