@@ -29,6 +29,9 @@ class AttackProfile:
     success_indicators: dict[str, Any]
     remediation: str = ""
     references: list[str] = field(default_factory=list)
+    workflow: list[dict[str, Any]] = field(default_factory=list)
+    concurrency: dict[str, Any] = field(default_factory=dict)
+    target_paths: list[str] = field(default_factory=list)
 
 
 ATTACK_PLANNING_PROMPT = """You are a security expert analyzing an API endpoint for vulnerabilities.
@@ -131,8 +134,6 @@ class AttackPlanner:
                     "name",
                     "category",
                     "severity",
-                    "payloads",
-                    "target_fields",
                 ]
                 missing = [field_name for field_name in required_fields if field_name not in data]
 
@@ -144,7 +145,17 @@ class AttackPlanner:
 
                 payloads = data.get("payloads") or []
                 target_fields = data.get("target_fields") or []
-                if not isinstance(payloads, list) or not isinstance(target_fields, list):
+                workflow = data.get("workflow") or []
+                concurrency = data.get("concurrency") or {}
+
+                if not (payloads and target_fields) and not workflow and not concurrency:
+                    logger.warning(
+                        "Skipping %s: Must contain either payloads/target_fields or workflow or concurrency definition",
+                        file_path,
+                    )
+                    continue
+
+                if (payloads and not isinstance(payloads, list)) or (target_fields and not isinstance(target_fields, list)):
                     logger.warning(
                         "Skipping %s: 'payloads' and 'target_fields' must be lists",
                         file_path,
@@ -161,6 +172,9 @@ class AttackPlanner:
                     success_indicators=data.get("success_indicators", {}) or {},
                     remediation=str(data.get("remediation", "")),
                     references=[str(r) for r in (data.get("references", []) or [])],
+                    workflow=workflow,
+                    concurrency=concurrency,
+                    target_paths=data.get("target_paths") or [],
                 )
                 self.attack_profiles.append(profile)
                 logger.debug("Loaded attack profile: %s", profile.name)
@@ -321,6 +335,63 @@ class AttackPlanner:
 
         attacks: list[dict[str, Any]] = []
         for profile in self.attack_profiles:
+            # Special handling for Business Logic / Workflow / Concurrency
+            if profile.workflow or profile.concurrency:
+                # Check path match
+                path_match = False
+                if profile.target_paths:
+                    for tp in profile.target_paths:
+                        try:
+                            if re.search(tp, path):
+                                path_match = True
+                                break
+                        except re.error:
+                            if tp in path:
+                                path_match = True
+                                break
+                
+                # Check field match
+                field_match = False
+                matched_field = None
+                matched_location = None
+                
+                if not path_match and profile.target_fields:
+                    for field_name, location in fields:
+                        if any(
+                            self._field_matches_target(field_name, target)
+                            for target in profile.target_fields
+                        ):
+                            field_match = True
+                            matched_field = field_name
+                            matched_location = location
+                            break
+                
+                if path_match or field_match:
+                    indicators = profile.success_indicators or {}
+                    attacks.append({
+                        "type": profile.category,
+                        "name": profile.name,
+                        "profile_name": profile.name,
+                        "description": profile.description,
+                        "endpoint": path,
+                        "method": method,
+                        "field": matched_field or "N/A",  # Might be N/A for path-based
+                        "location": matched_location or "N/A",
+                        "workflow": profile.workflow,
+                        "concurrency": profile.concurrency,
+                        "payloads": [], # No payloads for logic attacks usually
+                        "payload": {},
+                        "target_param": matched_field or "N/A",
+                        "expected_status": self._expected_status(indicators),
+                        "priority": self._severity_to_priority(profile.severity),
+                        "severity": profile.severity,
+                        "success_indicators": indicators,
+                        "expected_indicators": indicators,
+                        "remediation": profile.remediation,
+                        "references": profile.references,
+                    })
+                continue
+
             for field_name, location in fields:
                 if any(
                     self._field_matches_target(field_name, target)
