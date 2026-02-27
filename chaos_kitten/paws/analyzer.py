@@ -180,9 +180,62 @@ class ResponseAnalyzer:
                 confidence=0.6
             )
             
-        # 4. Timing Anomalies (Profile based)
+        # 4. Cache Poisoning Detection (High/Medium Confidence)
+        cp_finding = self.check_cache_poisoning(response, payload)
+        if cp_finding:
+             cp_finding.endpoint = endpoint
+             cp_finding.payload = payload
+             return cp_finding
+
+        # 5. Timing Anomalies (Profile based)
         # Note: Generic timing check without baseline is hard, so we rely on profile 'response_time_gt'
         # which is handled in _check_custom_indicators usually.
+        
+        return None
+
+
+    def check_cache_poisoning(self, response: dict, payload: str) -> Optional[Finding]:
+        """Detect potential cache poisoning vulnerabilities.
+        
+        Checks for:
+        1. Unkeyed input reflection in headers/body with permissive caching.
+        2. Missing Vary header when headers affect the response.
+        """
+        if not payload:
+            return None
+            
+        headers = response.get("headers", {})
+        # Normalize headers to lowercase
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+        
+        cache_control = headers_lower.get("cache-control", "").lower()
+        body = response.get("body", "")
+
+        # Key indicators for caching
+        # Simple heuristic: must be explicitly cacheable or missing cache-control (implies browser default, but for poisoning we usually look for explicit cache)
+        is_cacheable = "public" in cache_control or ("max-age" in cache_control and "max-age=0" not in cache_control and "no-store" not in cache_control)
+
+        reflected_in_header = False
+        reflected_header_name = ""
+        for h_name, h_val in headers.items():
+            if payload in str(h_val):
+                reflected_in_header = True
+                reflected_header_name = h_name
+                break
+        
+        reflected_in_body = payload in body
+
+        if (reflected_in_header or reflected_in_body) and is_cacheable:
+             confidence = 0.9 if reflected_in_header else 0.6 
+             evidence = f"Payload '{payload}' reflected in {'header (' + reflected_header_name + ')' if reflected_in_header else 'body'} and response is CACHEABLE."
+
+             return Finding(
+                vulnerability_type="Cache Poisoning",
+                severity=Severity.HIGH,
+                evidence=evidence,
+                recommendation="Ensure unkeyed inputs are not reflected or add 'Vary' header. Disable caching for reflected content.",
+                confidence=confidence
+            )
         
         return None
 
