@@ -24,7 +24,7 @@ from chaos_kitten.brain.attack_planner import AttackPlanner
 
 # Internal Chaos Kitten imports
 from chaos_kitten.brain.openapi_parser import OpenAPIParser
-# from chaos_kitten.brain.response_analyzer import ResponseAnalyzer # Deprecated/Replaced
+from chaos_kitten.brain.response_analyzer import ResponseAnalyzer as ErrorAnalyzer
 from chaos_kitten.paws.analyzer import ResponseAnalyzer
 from chaos_kitten.litterbox.reporter import Reporter
 from chaos_kitten.paws.executor import Executor
@@ -99,6 +99,7 @@ async def execute_and_analyze(state: AgentState, executor: Executor) -> Dict[str
 
     endpoint = state["endpoints"][idx]
     analyzer = ResponseAnalyzer()
+    error_analyzer = ErrorAnalyzer()
 
     new_findings = []
 
@@ -173,6 +174,28 @@ async def execute_and_analyze(state: AgentState, executor: Executor) -> Dict[str
                     ),
                 }
             )
+
+        # Use new Error Analyzer to detect specific injection errors
+        error_res = error_analyzer.analyze_error_messages(response_data)
+        if error_res.get("error_category"):
+            cat = error_res["error_category"]
+            conf = error_res.get("confidence", 0.0)
+            inds = error_res.get("indicators", [])
+            
+            # Avoid duplicate if main analyzer caught it? 
+            # For now, append as additional finding or evidence.
+            new_findings.append({
+                "type": cat,
+                "title": f"Potential {cat} detected via Error Analysis",
+                "description": f"Confidence: {conf}. Error patterns detected.",
+                "severity": "high",
+                "endpoint": f"{endpoint.get('method')} {endpoint.get('path')}",
+                "method": endpoint.get("method", "GET"),
+                "evidence": f"Response contained known error patterns: {inds}",
+                "payload": payload_used,
+                "proof_of_concept": "",
+                "remediation": "Sanitize inputs and disable verbose error messages."
+            })
 
     return {"findings": state["findings"] + new_findings, "current_endpoint": idx + 1}
 
