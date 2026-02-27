@@ -265,7 +265,16 @@ class Orchestrator:
 
             scan_task = progress.add_task("[cyan]Scanning endpoints...", total=None)
 
-            async with Executor(base_url=target_url) as executor:
+            executor_config = self.config.get("executor", {})
+            # Extract retry settings from executor config or nested 'retry' block
+            retry_config = executor_config.get("retry", executor_config)
+
+            async with Executor(
+                base_url=target_url,
+                rate_limit=executor_config.get("rate_limit", 10),
+                timeout=executor_config.get("timeout", 30),
+                retry_config=retry_config
+            ) as executor:
                 initial_state: AgentState = {
                     "spec_path": spec_path,
                     "base_url": target_url,

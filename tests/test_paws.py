@@ -73,6 +73,83 @@ class TestExecutor:
         assert "Authorization" not in headers
     
     @pytest.mark.asyncio
+    async def test_retry_on_429(self):
+        """Test retry logic on 429 response."""
+        executor = Executor(
+            base_url="http://test.com", 
+            retry_config={"max_retries": 2, "base_backoff": 0.01, "jitter": False}
+        )
+        # Manually mock context manager
+        executor._client = httpx.AsyncClient(base_url="http://test.com")
+        executor._rate_limiter = asyncio.Semaphore(10)
+        
+        try:
+            with respx.mock(base_url="http://test.com") as mock_api:
+                route = mock_api.get("/retry").mock(
+                    side_effect=[
+                        httpx.Response(429),
+                        httpx.Response(429),
+                        httpx.Response(200, json={"success": True})
+                    ]
+                )
+                
+                result = await executor.execute_attack("GET", "/retry")
+                
+                assert result["status_code"] == 200
+                assert route.call_count == 3
+        finally:
+            await executor._client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_retry_respects_retry_after(self):
+        """Test respecting Retry-After header."""
+        executor = Executor(
+            base_url="http://test.com", 
+            retry_config={"max_retries": 1, "base_backoff": 0.01}
+        )
+        executor._client = httpx.AsyncClient(base_url="http://test.com")
+        executor._rate_limiter = asyncio.Semaphore(10)
+
+        try:
+            with respx.mock(base_url="http://test.com") as mock_api:
+                route = mock_api.get("/retry-after").mock(
+                    side_effect=[
+                        httpx.Response(429, headers={"Retry-After": "0.1"}),
+                        httpx.Response(200)
+                    ]
+                )
+                
+                result = await executor.execute_attack("GET", "/retry-after")
+                
+                assert result["status_code"] == 200
+                assert route.call_count == 2
+        finally:
+            await executor._client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_max_retries_exceeded(self):
+        """Test max retries exhaustion."""
+        executor = Executor(
+            base_url="http://test.com", 
+            retry_config={"max_retries": 2, "base_backoff": 0.01, "jitter": False}
+        )
+        executor._client = httpx.AsyncClient(base_url="http://test.com")
+        executor._rate_limiter = asyncio.Semaphore(10)
+        
+        try:
+            with respx.mock(base_url="http://test.com") as mock_api:
+                # Mock to always return 429
+                route = mock_api.get("/exhaust").mock(return_value=httpx.Response(429))
+                
+                result = await executor.execute_attack("GET", "/exhaust")
+                
+                assert result["status_code"] == 429
+                # 1 initial + 2 retries = 3 calls
+                assert route.call_count == 3
+        finally:
+            await executor._client.aclose()
+
+    @pytest.mark.asyncio
     @respx.mock
     async def test_execute_get_request(self):
         """Test executing a GET request with query parameters."""
