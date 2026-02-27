@@ -349,7 +349,7 @@ def diff(
 
     except ImportError as e:
         console.print(f"[bold red]❌ Import Error:[/bold red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
     try:
         old_spec = load_spec(old)

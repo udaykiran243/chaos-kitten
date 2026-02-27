@@ -374,6 +374,7 @@ class AttackPlanner:
                         "profile_name": profile.name,
                         "description": profile.description,
                         "endpoint": path,
+                        "path": path,
                         "method": method,
                         "field": matched_field or "N/A",  # Might be N/A for path-based
                         "location": matched_location or "N/A",

@@ -26,9 +26,9 @@ async def test_concurrent_attack_execution():
     # Since asyncio.gather runs them concurrently, side_effect might be consumed in any order, 
     # but typically it just pops from the list.
     mock_executor.execute.side_effect = [
-        {"status": 200, "body": "Success 1"},
-        {"status": 200, "body": "Success 2"},
-        {"status": 409, "body": "Conflict 3"}
+        {"status_code": 200, "body": "Success 1"},
+        {"status_code": 200, "body": "Success 2"},
+        {"status_code": 409, "body": "Conflict 3"}
     ]
     
     app_config = {"target": {"base_url": "http://test"}}
