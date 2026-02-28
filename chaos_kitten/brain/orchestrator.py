@@ -232,7 +232,7 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                     "command_injection": PawsSeverity.CRITICAL,
                     "xxe": PawsSeverity.HIGH,
                     "nosql_injection": PawsSeverity.HIGH,
-                    "path_traversal": PawsSeverity.MEDIUM,
+                    "path_traversal": PawsSeverity.HIGH,
                 }
                 
                 error_finding = Finding(
