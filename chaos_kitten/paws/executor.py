@@ -234,10 +234,18 @@ class Executor:
                             headers=request_headers,
                         )
                 elif method == "DELETE":
-                    response = await self._client.delete(
-                        path,
-                        headers=request_headers,
-                    )
+                    if payload:
+                        response = await self._client.request(
+                            method,
+                            path,
+                            json=payload,
+                            headers=request_headers,
+                        )
+                    else:
+                        response = await self._client.delete(
+                            path,
+                            headers=request_headers,
+                        )
                 else:
                     return {
                         "status_code": 0,
