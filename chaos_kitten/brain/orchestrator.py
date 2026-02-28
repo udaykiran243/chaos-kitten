@@ -249,15 +249,15 @@ class Orchestrator:
         
         # Extract retry settings from executor config or nested 'retry' block
         executor_config = self.config.get("executor", {})
-        retry_config = executor_config.get("retry", executor_config)
+        retry_config = executor_config.get("retry", {})
 
         # Initialize Executor with Context Manager to handle connections
         async with Executor(
             base_url=target_cfg.get("base_url", ""),
             auth_type=auth_cfg.get("type", "none"),
             auth_token=auth_cfg.get("token"),
-            rate_limit=self.config.get("rate_limit", 10),
-            timeout=self.config.get("timeout", 30),
+            rate_limit=executor_config.get("rate_limit", 10),
+            timeout=executor_config.get("timeout", 30),
             retry_config=retry_config
         ) as executor:
             

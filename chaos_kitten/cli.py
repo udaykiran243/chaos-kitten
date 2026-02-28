@@ -347,9 +347,9 @@ def diff(
                 console.print(f"[bold red]❌ Failed to parse spec:[/bold red] {e}")
                 raise typer.Exit(code=1)
 
-    except ImportError:
-        console.print("[bold red]❌ Missing dependencies for diff mode.[/bold red]")
-        raise typer.Exit(code=1)
+    except ImportError as e:
+        console.print(f"[bold red]❌ Missing dependencies: {e}[/bold red]")
+        raise typer.Exit(code=1) from e
 
     try:
         old_spec = load_spec(old)

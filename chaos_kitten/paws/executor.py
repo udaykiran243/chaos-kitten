@@ -80,6 +80,12 @@ class Executor:
         self.max_backoff = self.retry_config.get("max_backoff", 60.0)
         self.jitter = self.retry_config.get("jitter", True)
         
+        # Validation
+        if not isinstance(self.max_retries, int) or self.max_retries < 0:
+            raise ValueError(f"max_retries must be int >= 0, got {self.max_retries}")
+        if self.base_backoff < 0 or self.base_backoff > self.max_backoff:
+            raise ValueError(f"Invalid backoff: base={self.base_backoff}, max={self.max_backoff}")
+        
         self.enable_logging = enable_logging
         self.log_file = log_file
 
@@ -104,7 +110,7 @@ class Executor:
         await self._perform_mfa_auth()
         
         # Initialize rate limiter semaphore
-        self._rate_limiter = asyncio.Semaphore(self.rate_limit)
+        self._rate_limiter = asyncio.Semaphore(max(1, self.rate_limit)) if self.rate_limit > 0 else None
         return self
     
     async def __aexit__(self, *args: Any) -> None:
@@ -321,9 +327,9 @@ class Executor:
             try:
                 # Retry-After can be seconds or a date. We handle seconds for now or simple int.
                 header_val = response.headers["Retry-After"]
-                if header_val.isdigit():
+                try:
                     wait_time = float(header_val)
-                else:
+                except ValueError:
                     # Todo: Handle date format if needed
                     wait_time = self.base_backoff
 
@@ -434,16 +440,18 @@ class Executor:
         if not self.enable_logging:
             return
             
+        # Sanitize body to prevent leaking secrets/huge logs
+        body_safe = body[:200] + "..." if len(body) > 200 else body
+
         if error:
             self._logger.error(
                 f"RESPONSE ERROR (Time: {elapsed_ms:.2f}ms): {error}\n"
-                f"Body: {body}" # Log full body on error
+                f"Body: {body_safe}" 
             )
         elif status_code >= 400:
-            # Log full body for error responses at WARNING level
             self._logger.warning(
                 f"RESPONSE (Time: {elapsed_ms:.2f}ms): Status: {status_code}\n"
-                f"Body: {body}" # Log full body for HTTP errors
+                f"Body: {body_safe}" 
             )
         else:
             self._logger.info(
