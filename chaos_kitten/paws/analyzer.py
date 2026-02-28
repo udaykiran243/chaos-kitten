@@ -212,8 +212,12 @@ class ResponseAnalyzer:
         body = response.get("body", "")
 
         # Key indicators for caching
-        # Simple heuristic: must be explicitly cacheable or missing cache-control (implies browser default, but for poisoning we usually look for explicit cache)
-        is_cacheable = "public" in cache_control or ("max-age" in cache_control and "max-age=0" not in cache_control and "no-store" not in cache_control)
+        # Parse directives properly 
+        is_cacheable = False
+        if cache_control:
+            directives = [d.strip() for d in cache_control.split(',')]
+            is_cacheable = any(d == 'public' or (d.startswith('max-age=') and d != 'max-age=0') or (d.startswith('s-maxage=') and d != 's-maxage=0') for d in directives)
+            is_cacheable = is_cacheable and 'no-store' not in directives
 
         reflected_in_header = False
         reflected_header_name = ""
@@ -226,9 +230,20 @@ class ResponseAnalyzer:
         reflected_in_body = payload in body
 
         if (reflected_in_header or reflected_in_body) and is_cacheable:
+             # Check for Vary header
+             vary_header = headers_lower.get("vary", "")
+             vary_list = [v.strip().lower() for v in vary_header.split(',')]
+             
+             # If reflected in header, check if that header is in Vary
+             if reflected_in_header:
+                 if reflected_header_name.lower() in vary_list:
+                     return None # Safe because of Vary header
+             
              confidence = 0.9 if reflected_in_header else 0.6 
              evidence = f"Payload '{payload}' reflected in {'header (' + reflected_header_name + ')' if reflected_in_header else 'body'} and response is CACHEABLE."
-
+             if reflected_in_header and reflected_header_name.lower() not in vary_list:
+                 evidence += f" Header '{reflected_header_name}' missing from Vary."
+                 
              return Finding(
                 vulnerability_type="Cache Poisoning",
                 severity=Severity.HIGH,

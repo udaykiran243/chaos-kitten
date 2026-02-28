@@ -4,7 +4,7 @@
 
 Cache poisoning occurs when an attacker can manipulate a cache key or inject malicious content that gets stored in a shared cache, serving the malicious content to other users.
 
-Chaos Kitten detects potential cache poisoning vulnerabilities by validiting:
+Chaos Kitten detects potential cache poisoning vulnerabilities by validating:
 1.  **Cache Configuration**: Checking `Cache-Control` headers for public caching of potentially private or sensitive data.
 2.  **Header Reflection**: Checking if injected headers (like `X-Forwarded-Host`) are reflected in the response headers or body.
 3.  **Vary Header**: Ensuring that responses varying based on inputs includes the appropriate `Vary` header.
@@ -38,4 +38,4 @@ Sensitive responses (e.g., containing CSRF tokens or user info) are cached publi
 ## Configuration
 
 The Cache Poisoning attack profile is defined in `toys/cache_poisoning.yaml`.
-Shared capabilities are implemented in `chaos_kitten/brain/response_analyzer.py` inside `detect_cache_poisoning` method.
+Shared capabilities are implemented in `chaos_kitten/paws/analyzer.py` inside `check_cache_poisoning` method.

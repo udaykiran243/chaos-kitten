@@ -74,7 +74,7 @@ def test_cache_poisoning_no_caching(analyzer):
         assert finding.vulnerability_type != "Cache Poisoning"
 
 def test_cache_poisoning_safe_vary(analyzer):
-    """Test safe case where Vary header handles the input? (Not fully implemented yet)"""
+    """Test safe case where Vary header handles the input."""
     payload = "evil.com"
     response = {
         "body": "Safe content",
@@ -83,7 +83,8 @@ def test_cache_poisoning_safe_vary(analyzer):
         "headers": {
             "Content-Type": "text/html",
             "Cache-Control": "public, max-age=3600",
-            # "Vary": "X-Forwarded-Host" # If we checked this, it would be safe.
+            "X-Forwarded-Host": "evil.com", # Reflected
+            "Vary": "X-Forwarded-Host" # But protected by Vary
         }
     }
     
