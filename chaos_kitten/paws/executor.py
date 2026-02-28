@@ -1,17 +1,19 @@
 """HTTP Executor - Async HTTP client for executing attacks."""
 
-try:
-    import pyotp
-except ImportError:
-    pyotp = None
-
 import asyncio
 import logging
 import re
 import time
+import random
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
 import httpx
+import urllib.parse
+
+try:
+    import pyotp
+except ImportError:
+    pyotp = None
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ class Executor:
     - Timeout handling
     - Multiple auth methods
     - Response analysis
+    - Retry logic for rate-limited responses (429)
     """
     
     def __init__(
@@ -34,6 +37,7 @@ class Executor:
         auth_token: Optional[str] = None,
         rate_limit: int = 10,
         timeout: int = 30,
+        retry_config: Optional[Dict[str, Any]] = None,
         # New MFA fields
         totp_secret: Optional[str] = None,
         totp_endpoint: Optional[str] = None,
@@ -49,6 +53,10 @@ class Executor:
             auth_token: Authentication token/credentials
             rate_limit: Maximum requests per second
             timeout: Request timeout in seconds
+            retry_config: Configuration for retry logic
+            totp_secret: TOTP secret key for MFA
+            totp_endpoint: Endpoint to submit TOTP code
+            totp_field: JSON field name for TOTP code
             enable_logging: Enable request/response logging
             log_file: Optional file path to save logs
         
@@ -64,8 +72,23 @@ class Executor:
         self.auth_token = auth_token
         self.rate_limit = rate_limit
         self.timeout = timeout
+        
+        # Retry configuration
+        self.retry_config = retry_config or {}
+        self.max_retries = self.retry_config.get("max_retries", 3)
+        self.base_backoff = self.retry_config.get("base_backoff", 1.0)
+        self.max_backoff = self.retry_config.get("max_backoff", 60.0)
+        self.jitter = self.retry_config.get("jitter", True)
+        
+        # Validation
+        if not isinstance(self.max_retries, int) or self.max_retries < 0:
+            raise ValueError(f"max_retries must be int >= 0, got {self.max_retries}")
+        if self.base_backoff < 0 or self.base_backoff > self.max_backoff:
+            raise ValueError(f"Invalid backoff: base={self.base_backoff}, max={self.max_backoff}")
+        
         self.enable_logging = enable_logging
         self.log_file = log_file
+
         self._client: Optional[httpx.AsyncClient] = None
         self._rate_limiter: Optional[asyncio.Semaphore] = None
         self._last_request_time: float = 0.0
@@ -87,7 +110,7 @@ class Executor:
         await self._perform_mfa_auth()
         
         # Initialize rate limiter semaphore
-        self._rate_limiter = asyncio.Semaphore(self.rate_limit)
+        self._rate_limiter = asyncio.Semaphore(max(1, self.rate_limit)) if self.rate_limit > 0 else None
         return self
     
     async def __aexit__(self, *args: Any) -> None:
@@ -96,8 +119,8 @@ class Executor:
             await self._client.aclose()
         
         # Close file handler to prevent resource leak
-        if self.enable_logging and self.log_file:
-            for handler in self._logger.handlers[:]:
+        if self.enable_logging and self.log_file and hasattr(self, '_logger'):
+             for handler in self._logger.handlers[:]:
                 handler.close()
                 self._logger.removeHandler(handler)
     
@@ -143,369 +166,189 @@ class Executor:
                 "error": "Client not initialized. Use 'async with Executor(...)' pattern.",
             }
         
-        # Apply rate limiting
-        await self._apply_rate_limit()
+        method = method.upper()
         
         # Merge additional headers
         request_headers = self._client.headers.copy()
         if headers:
             request_headers.update(headers)
+
+        last_result = {}
         
-        # Prepare request parameters
-        method = method.upper()
-        start_time = time.perf_counter()
-        
-        # Log request (timestamp created inside if logging enabled)
-        self._log_request(
-            method=method,
-            path=path,
-            headers=request_headers,
-            payload=payload or graphql_query,
-        )
-        
-        try:
-            # Execute request based on method
-            if method == "GET":
-                response = await self._client.get(
-                    path,
-                    params=payload,
-                    headers=request_headers,
-                )
-            elif method in ("POST", "PUT", "PATCH"):
-                # Handle GraphQL
-                if graphql_query:
-                    # GraphQL is typically POST-only; warn if a different method was requested
-                    if method != "POST":
-                        logger.debug(
-                            "GraphQL queries are typically sent via POST, "
-                            "but '%s' was requested for %s", method, path
-                        )
-                    # GraphQL usually expects {"query": "...", "variables": {...}}
-                    # payload can be used for variables if provided
-                    json_body = {"query": graphql_query}
-                    if payload:
-                        json_body["variables"] = payload
-                    
-                    response = await self._client.request(
-                        method,
+        for attempt in range(self.max_retries + 1):
+            # Apply rate limiting
+            await self._apply_rate_limit()
+
+            start_time = time.perf_counter()
+            response = None
+            error_msg = None
+            
+            # Log request (timestamp created inside if logging enabled)
+            self._log_request(
+                method=method,
+                path=path,
+                headers=request_headers,
+                payload=payload or graphql_query,
+            )
+
+            try:
+                # Execute request based on method
+                if method == "GET":
+                    response = await self._client.get(
                         path,
-                        json=json_body,
+                        params=payload,
                         headers=request_headers,
                     )
-                # Handle multipart/form-data vs json
-                elif files:
-                    # If files are present, payload usually goes into 'data' form fields
-                    # httpx handles boundary and content-type for files automatically
-                    response = await self._client.request(
-                        method,
+                elif method in ("POST", "PUT", "PATCH"):
+                    # Handle GraphQL
+                    if graphql_query:
+                        if method != "POST":
+                            logger.debug(
+                                "GraphQL queries are typically sent via POST, "
+                                "but '%s' was requested for %s", method, path
+                            )
+                        json_body = {"query": graphql_query}
+                        if payload:
+                            json_body["variables"] = payload
+                        
+                        response = await self._client.request(
+                            method,
+                            path,
+                            json=json_body,
+                            headers=request_headers,
+                        )
+                    # Handle multipart/form-data vs json
+                    elif files:
+                        response = await self._client.request(
+                            method,
+                            path,
+                            data=payload,
+                            files=files,
+                            headers=request_headers,
+                        )
+                    else:
+                        response = await self._client.request(
+                            method,
+                            path,
+                            json=payload,
+                            headers=request_headers,
+                        )
+                elif method == "DELETE":
+                    response = await self._client.delete(
                         path,
-                        data=payload, # Form fields
-                        files=files,  # File uploads
                         headers=request_headers,
                     )
                 else:
-                    response = await self._client.request(
-                        method,
-                        path,
-                        json=payload,
-                        headers=request_headers,
-                    )
-            elif method == "DELETE":
-                response = await self._client.delete(
-                    path,
-                    headers=request_headers,
+                    return {
+                        "status_code": 0,
+                        "headers": {},
+                        "body": "",
+                        "elapsed_ms": 0.0,
+                        "error": f"Unsupported HTTP method: {method}",
+                    }
+
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                
+                last_result = {
+                    "status_code": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": response.text,
+                    "elapsed_ms": elapsed_ms,
+                    "error": None,
+                }
+                
+                # Log response details
+                self._log_response(
+                   status_code=response.status_code,
+                   elapsed_ms=elapsed_ms,
+                   body=response.text[:1000] # Log first 1000 chars
                 )
-            else:
-                return {
+
+                # Check for 429 Rate Limit
+                if response.status_code == 429:
+                    if attempt < self.max_retries:
+                        await self._handle_429_backoff(attempt, response)
+                        continue
+                    else:
+                        logger.warning(f"Max retries ({self.max_retries}) exceeded for {method} {path} (429 Too Many Requests)")
+                        return last_result
+                
+                # Successful or non-retriable response
+                return last_result
+                
+            except httpx.TimeoutException as e:
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                error_msg = f"Request timeout: {str(e)}"
+                logger.warning(f"Timeout executing {method} {path}: {e}")
+                last_result = {
                     "status_code": 0,
                     "headers": {},
                     "body": "",
-                    "elapsed_ms": 0.0,
-                    "error": f"Unsupported HTTP method: {method}",
+                    "elapsed_ms": elapsed_ms,
+                    "error": error_msg,
                 }
+                # Consider retrying on timeout? Usually yes, but 429 is the main focus here.
+                # Let's retry on timeout too if configured, but keeping scope to 429 for now as per issue.
+                self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
+                return last_result
+
+            except (httpx.ConnectError, httpx.HTTPError) as e:
+                 elapsed_ms = (time.perf_counter() - start_time) * 1000
+                 error_msg = f"HTTP/Connection error: {str(e)}"
+                 logger.warning(f"HTTP error executing {method} {path}: {e}")
+                 last_result = {
+                     "status_code": 0,
+                     "headers": {},
+                     "body": "",
+                     "elapsed_ms": elapsed_ms,
+                     "error": error_msg,
+                 }
+                 self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
+                 return last_result
+                 
+            except Exception as e:
+                 elapsed_ms = (time.perf_counter() - start_time) * 1000
+                 error_msg = f"Unexpected error: {str(e)}"
+                 logger.warning(f"Unexpected error executing {method} {path}: {e}")
+                 self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
+                 return {
+                     "status_code": 0,
+                     "headers": {},
+                     "body": "",
+                     "elapsed_ms": elapsed_ms,
+                     "error": error_msg,
+                 }
+
+        return last_result
+
+    async def _handle_429_backoff(self, attempt: int, response: httpx.Response) -> None:
+        """Handle 429 rate limiting with backoff."""
+        if response and "Retry-After" in response.headers:
+            try:
+                # Retry-After can be seconds or a date. We handle seconds for now or simple int.
+                header_val = response.headers["Retry-After"]
+                try:
+                    wait_time = float(header_val)
+                except ValueError:
+                    # Todo: Handle date format if needed
+                    wait_time = self.base_backoff
+
+                logger.info(f"Rate limited. Waiting {wait_time}s as per Retry-After header.")
+                await asyncio.sleep(wait_time)
+                return
+            except ValueError:
+                pass # Fallback to exponential backoff
+
+        # Exponential backoff: base * 2^attempt
+        backoff = min(self.max_backoff, self.base_backoff * (2 ** attempt))
+        
+        if self.jitter:
+            # Jitter: randomized between 0.5 * backoff and 1.5 * backoff
+            backoff = backoff * (0.5 + random.random())
             
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
-            
-            result = {
-                "status_code": response.status_code,
-                "headers": dict(response.headers),
-                "body": response.text,
-                "elapsed_ms": elapsed_ms,
-                "error": None,
-            }
-            
-            # Log response
-            self._log_response(
-                status_code=result["status_code"],
-                headers=result["headers"],
-                body=result["body"],
-                elapsed_ms=result["elapsed_ms"],
-                error=result["error"],
-            )
-            
-            return result
-            
-        except httpx.TimeoutException as e:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
-            error_msg = f"Request timeout: {str(e)}"
-            logger.warning(f"Timeout executing {method} {path}: {e}")
-            
-            result = {
-                "status_code": 0,
-                "headers": {},
-                "body": "",
-                "elapsed_ms": elapsed_ms,
-                "error": error_msg,
-            }
-            
-            # Log error response
-            self._log_response(
-                status_code=result["status_code"],
-                headers=result["headers"],
-                body=result["body"],
-                elapsed_ms=result["elapsed_ms"],
-                error=result["error"],
-            )
-            
-            return result
-            
-        # ... (rest of exception handling remains similar, ensuring closing indent)
-        except httpx.ConnectError as e:
-             elapsed_ms = (time.perf_counter() - start_time) * 1000
-             error_msg = f"Connection error: {str(e)}"
-             logger.warning(f"Connection error executing {method} {path}: {e}")
-             
-             result = {
-                 "status_code": 0,
-                 "headers": {},
-                 "body": "",
-                 "elapsed_ms": elapsed_ms,
-                 "error": error_msg,
-             }
-             
-             # Log error response
-             self._log_response(
-                 status_code=result["status_code"],
-                 headers=result["headers"],
-                 body=result["body"],
-                 elapsed_ms=result["elapsed_ms"],
-                 error=result["error"],
-             )
-             
-             return result
-             
-        except httpx.HTTPError as e:
-             elapsed_ms = (time.perf_counter() - start_time) * 1000
-             error_msg = f"HTTP error: {str(e)}"
-             logger.warning(f"HTTP error executing {method} {path}: {e}")
-             
-             result = {
-                 "status_code": 0,
-                 "headers": {},
-                 "body": "",
-                 "elapsed_ms": elapsed_ms,
-                 "error": error_msg,
-             }
-             
-             # Log error response
-             self._log_response(
-                 status_code=result["status_code"],
-                 headers=result["headers"],
-                 body=result["body"],
-                 elapsed_ms=result["elapsed_ms"],
-                 error=result["error"],
-             )
-             
-             return result
-             
-        except Exception as e:
-             elapsed_ms = (time.perf_counter() - start_time) * 1000
-             error_msg = f"Unexpected error: {str(e)}"
-             logger.warning(f"Unexpected error executing {method} {path}: {e}")
-             
-             result = {
-                 "status_code": 0,
-                 "headers": {},
-                 "body": "",
-                 "elapsed_ms": elapsed_ms,
-                 "error": error_msg,
-             }
-             
-             # Log error response
-             self._log_response(
-                 status_code=result["status_code"],
-                 headers=result["headers"],
-                 body=result["body"],
-                 elapsed_ms=result["elapsed_ms"],
-                 error=result["error"],
-             )
-             
-             return result
-    
-    def _setup_logging(self) -> None:
-        """Set up logging for the executor instance."""
-        if not self.enable_logging:
-            return
-        
-        # Use per-instance logger name to avoid handler corruption
-        self._logger = logging.getLogger(f"{__name__}.executor.{id(self)}")
-        self._logger.setLevel(logging.DEBUG)
-        
-        # Fresh logger has no handlers; no need to clear
-        
-        # Console handler for DEBUG and above
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
-        console_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        console_handler.setFormatter(console_formatter)
-        self._logger.addHandler(console_handler)
-        
-        # File handler if log_file is specified
-        if self.log_file:
-            file_handler = logging.FileHandler(self.log_file, mode='a')
-            file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(console_formatter)
-            self._logger.addHandler(file_handler)
-    
-    def _redact_sensitive_data(self, headers: Dict[str, str]) -> Dict[str, str]:
-        """Redact sensitive information from headers.
-        
-        Args:
-            headers: Dictionary of headers to redact
-            
-        Returns:
-            Dictionary with redacted headers
-        """
-        redacted = headers.copy()
-        sensitive_keys = [
-            "authorization", "x-api-key", "api-key", "apikey",
-            "x-auth-token", "auth-token", "cookie", "set-cookie"
-        ]
-        
-        for key in redacted:
-            if key.lower() in sensitive_keys:
-                redacted[key] = "[REDACTED]"
-        
-        return redacted
-    
-    def _redact_query_params(self, url: str) -> str:
-        """Redact sensitive query parameters from URL.
-        
-        Args:
-            url: URL to redact
-            
-        Returns:
-            URL with redacted sensitive query parameters
-        """
-        # Common patterns for API keys in query params
-        patterns = [
-            (r'([?&])(api[-_]?key|apikey)=([^&#]*)', r'\1\2=[REDACTED]'),
-            (r'([?&])(token|access[-_]?token)=([^&#]*)', r'\1\2=[REDACTED]'),
-            (r'([?&])(auth|authorization)=([^&#]*)', r'\1\2=[REDACTED]'),
-            (r'([?&])(secret|password|pwd)=([^&#]*)', r'\1\2=[REDACTED]'),
-        ]
-        
-        redacted_url = url
-        for pattern, replacement in patterns:
-            redacted_url = re.sub(pattern, replacement, redacted_url, flags=re.IGNORECASE)
-        
-        return redacted_url
-    
-    def _truncate_body(self, body: str, max_chars: int = 500) -> str:
-        """Truncate body to max_chars, adding ellipsis if truncated.
-        
-        Args:
-            body: Body content to truncate
-            max_chars: Maximum characters to include
-            
-        Returns:
-            Truncated body string
-        """
-        if len(body) <= max_chars:
-            return body
-        return body[:max_chars] + "... [truncated]"
-    
-    def _log_request(
-        self,
-        method: str,
-        path: str,
-        headers: Dict[str, str],
-        payload: Optional[Any] = None,
-    ) -> None:
-        """Log HTTP request details.
-        
-        Args:
-            method: HTTP method
-            path: Request path
-            headers: Request headers
-            payload: Request body/payload
-        """
-        if not self.enable_logging:
-            return
-        
-        ts = datetime.now()
-        full_url = f"{self.base_url}{path}"
-        redacted_url = self._redact_query_params(full_url)
-        redacted_headers = self._redact_sensitive_data(headers)
-        
-        self._logger.info(
-            f"REQUEST [{ts.isoformat()}] {method} {redacted_url}"
-        )
-        self._logger.debug(f"Request Headers: {redacted_headers}")
-        
-        if payload:
-            payload_str = str(payload)
-            truncated_payload = self._truncate_body(payload_str, max_chars=500)
-            self._logger.debug(f"Request Body: {truncated_payload}")
-    
-    def _log_response(
-        self,
-        status_code: int,
-        headers: Dict[str, str],
-        body: str,
-        elapsed_ms: float,
-        error: Optional[str] = None,
-    ) -> None:
-        """Log HTTP response details.
-        
-        Args:
-            status_code: HTTP status code
-            headers: Response headers
-            body: Response body
-            elapsed_ms: Response time in milliseconds
-            error: Error message if request failed
-        """
-        if not self.enable_logging:
-            return
-        
-        redacted_headers = self._redact_sensitive_data(headers)
-        
-        if error:
-            self._logger.error(
-                f"RESPONSE [ERROR] Status: {status_code}, Time: {elapsed_ms:.2f}ms, Error: {error}"
-            )
-            # Log full body for Python exceptions (if body exists)
-            if body:
-                self._logger.error(f"Response Body: {body}")
-        else:
-            log_level = logging.INFO if 200 <= status_code < 300 else logging.WARNING
-            self._logger.log(
-                log_level,
-                f"RESPONSE Status: {status_code}, Time: {elapsed_ms:.2f}ms"
-            )
-            self._logger.debug(f"Response Headers: {redacted_headers}")
-            
-            # For 2xx: truncate body; for 4xx/5xx: log full body at WARNING
-            if 200 <= status_code < 300:
-                truncated_body = self._truncate_body(body, max_chars=500)
-                self._logger.debug(f"Response Body: {truncated_body}")
-            else:
-                # Log full body for HTTP error responses (4xx/5xx)
-                self._logger.log(log_level, f"Response Body: {body}")
-    
+        logger.info(f"Rate limited (429). Retrying in {backoff:.2f}s (Attempt {attempt + 1}/{self.max_retries})")
+        await asyncio.sleep(backoff)
+
     async def _apply_rate_limit(self) -> None:
         """Apply rate limiting using token bucket algorithm."""
         if not self._rate_limiter:
@@ -515,59 +358,141 @@ class Executor:
         async with self._rate_limiter:
             # Calculate time since last request
             current_time = time.perf_counter()
+            time_since_last = current_time - self._last_request_time
             
-            if self._last_request_time is not None:
-                time_since_last = current_time - self._last_request_time
-                
-                # Minimum time between requests (in seconds)
-                min_interval = 1.0 / self.rate_limit if self.rate_limit > 0 else 0
-                
-                # Sleep if we're going too fast
-                if time_since_last < min_interval:
-                    await asyncio.sleep(min_interval - time_since_last)
+            # Minimum time between requests (in seconds)
+            min_interval = 1.0 / self.rate_limit if self.rate_limit > 0 else 0
+            
+            # Sleep if we're going too fast
+            if time_since_last < min_interval:
+                await asyncio.sleep(min_interval - time_since_last)
             
             # Update last request time
             self._last_request_time = time.perf_counter()
 
-    def _generate_totp(self) -> Optional[str]:
-        """Generate a 6-digit TOTP code if secret is available.
+    def _setup_logging(self) -> None:
+        """Setup request/response logging."""
+        self._logger = logging.getLogger(f"{__name__}.traffic")
+        self._logger.setLevel(logging.INFO)
         
-        Returns:
-            A 6-digit string code or None if pyotp is not installed or secret is missing.
-        """
-        if not self.totp_secret:
-            return None
+        # Suppress httpx info logs to prevent leaking sensitive data or double logging
+        httpx_logger = logging.getLogger("httpx")
+        httpx_logger.setLevel(logging.WARNING)
+        httpx_logger.propagate = False
+        
+        if self.enable_logging and self.log_file and not self._logger.handlers:
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            )
+            file_handler = logging.FileHandler(self.log_file)
+            file_handler.setFormatter(formatter)
+            self._logger.addHandler(file_handler)
+
+    def _log_request(self, method: str, path: str, headers: Any, payload: Any) -> None:
+        """Log outgoing request."""
+        if not self.enable_logging:
+            return
+
+        # Redact Headers
+        safe_headers = dict(headers)
+        for key in safe_headers:
+            if key.lower() in ("authorization", "x-api-key", "cookie"):
+                safe_headers[key] = "[REDACTED]"
             
-        if pyotp is None:
-            logger.warning("pyotp is not installed. Cannot generate MFA code.")
-            return None
-            
+        # Redact Query Params
+        # We assume 'path' might contain query strings here? Or handled by requests params?
+        # The caller passes 'path' which might be just path buffer.
+        # But expected url in logs is full url with params.
+        # Wait, self.base_url + path. If path has query params, we need to cleanse.
+        
+        full_url = f"{self.base_url}{path}"
         try:
-            totp = pyotp.TOTP(self.totp_secret)
-            return totp.now()
-        except Exception as e:
-            logger.warning(f"Failed to generate TOTP code: {e}")
-            return None
+             parsed = urllib.parse.urlparse(full_url)
+             qs = urllib.parse.parse_qs(parsed.query)
+             sensitive_params = ["api_key", "token", "password", "secret", "client_secret"]
+             changed = False
+             for k in qs:
+                 if any(s in k.lower() for s in sensitive_params):
+                     qs[k] = ["[REDACTED]"]
+                     changed = True
+             
+             if changed:
+                 # Reconstruct query string
+                 # parse_qs checks returns lists. urlencode handles it.
+                 new_query = urllib.parse.urlencode(qs, doseq=True)
+                 full_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+        except Exception:
+             pass # Fail safe
+
+        # Truncate Payload
+        safe_payload = str(payload)
+        if len(safe_payload) > 500:
+            safe_payload = safe_payload[:500] + "... [truncated]"
+
+        self._logger.info(
+            f"REQUEST: {method} {full_url}\n"
+            f"Headers: {safe_headers}\n"
+            f"Payload: {safe_payload}"
+        )
+
+    def _log_response(self, status_code: int, elapsed_ms: float, body: str, error: Optional[str] = None) -> None:
+        """Log incoming response."""
+        if not self.enable_logging:
+            return
+            
+        # Sanitize body to prevent leaking secrets/huge logs
+        body_safe = body[:200] + "..." if len(body) > 200 else body
+
+        if error:
+            self._logger.error(
+                f"RESPONSE ERROR (Time: {elapsed_ms:.2f}ms): {error}\n"
+                f"Body: {body_safe}" 
+            )
+        elif status_code >= 400:
+            self._logger.warning(
+                f"RESPONSE (Time: {elapsed_ms:.2f}ms): Status: {status_code}\n"
+                f"Body: {body_safe}" 
+            )
+        else:
+            self._logger.info(
+                f"RESPONSE (Time: {elapsed_ms:.2f}ms): Status: {status_code}\n"
+                f"Body: {body[:500]}..." # Log first 500 chars
+            )
 
     async def _perform_mfa_auth(self) -> None:
-        """Perform Multi-Factor Authentication if credentials are provided."""
-        if not self.totp_endpoint:
-            return
-            
-        code = self._generate_totp()
-        if not code:
-            return
-            
-        if not self._client:
-            logger.warning("HTTP client not initialized before MFA authentication.")
+        """Perform TOTP-based Multi-Factor Authentication."""
+        if not (self.totp_secret and self.totp_endpoint):
             return
 
-        payload = {self.totp_field: code}
+        if not pyotp:
+            logger.warning("pyotp not installed. Skipping MFA.")
+            return
+
         try:
-            response = await self._client.post(self.totp_endpoint, json=payload)
-            if response.status_code >= 200 and response.status_code < 300:
-                logger.info(f"MFA authentication successful. Status code: {response.status_code}")
+            totp = pyotp.TOTP(self.totp_secret)
+            code = totp.now()
+            
+            logger.info(f"Authenticating with MFA endpoint: {self.totp_endpoint}")
+            
+            response = await self._client.post(
+                self.totp_endpoint,
+                json={self.totp_field: code},
+                headers=self._build_headers()
+            )
+            
+            if response.status_code == 200:
+                # Assuming the response contains a new token or sets a session cookie
+                # If it returns a bear token, we might need to update auth_token
+                # For now, we assume it sets a session cookie which httpx client handles
+                logger.info("MFA Authentication successful")
+                
+                data = response.json()
+                if "token" in data:
+                    self.auth_token = data["token"]
+                    # Re-configure client default headers with new token
+                    self._client.headers.update(self._build_headers())
             else:
-                logger.warning(f"MFA authentication failed. Status code: {response.status_code}")
+                logger.error(f"MFA Authentication failed: {response.text}")
+                
         except Exception as e:
-            logger.error(f"Error during MFA authentication: {e}")
+            logger.error(f"Error performing MFA: {e}")

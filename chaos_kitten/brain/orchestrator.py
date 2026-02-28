@@ -12,10 +12,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 try:
-    from langgraph.graph import END, START, StateGraph
+    from langgraph.graph import END, START, StateGraph, Graph
     HAS_LANGGRAPH = True
 except (ImportError, TypeError):
     HAS_LANGGRAPH = False
+    StateGraph = None
+    Graph = None
+    END = None
+    START = None
 
 from rich.console import Console
 from rich.progress import (
@@ -33,6 +37,12 @@ from chaos_kitten.utils.checkpoint import (
     load_checkpoint,
     save_checkpoint,
 )
+from chaos_kitten.brain.recon import ReconEngine
+from chaos_kitten.brain.openapi_parser import OpenAPIParser
+from chaos_kitten.brain.attack_planner import NaturalLanguagePlanner, AttackPlanner
+from chaos_kitten.paws.analyzer import ResponseAnalyzer
+from chaos_kitten.paws.executor import Executor
+from chaos_kitten.litterbox.reporter import Reporter
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -51,7 +61,6 @@ class AgentState(TypedDict):
 
 async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool = False) -> Dict[str, Any]:
     """Run the reconnaissance engine."""
-    from chaos_kitten.brain.recon import ReconEngine
     
     console.print("[bold blue]🔍 Starting Reconnaissance Phase...[/bold blue]")
     if state.get("recon_results"):
@@ -77,7 +86,6 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool 
 
 async def parse_openapi(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Parse the OpenAPI specification."""
-    from chaos_kitten.brain.openapi_parser import OpenAPIParser
     
     console.print("[bold blue]📖 Parsing OpenAPI Specification...[/bold blue]")
     if state.get("openapi_spec"):
@@ -107,7 +115,6 @@ async def parse_openapi(state: AgentState, app_config: Dict[str, Any]) -> Dict[s
 
 async def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a high-level natural language attack plan."""
-    from chaos_kitten.brain.attack_planner import NaturalLanguagePlanner
     
     console.print("[bold blue]📝 Generating Natural Language Attack Plan...[/bold blue]")
     if state.get("nl_plan"):
@@ -138,7 +145,6 @@ async def natural_language_plan(state: AgentState, app_config: Dict[str, Any]) -
 
 async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Plan specific attack vectors based on the API spec."""
-    from chaos_kitten.brain.attack_planner import AttackPlanner
     
     console.print("[bold blue]🎯 Planning Attack Vectors...[/bold blue]")
     if state.get("planned_attacks"):
@@ -276,7 +282,14 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                 "headers": attack.get("headers", {}),
                 "body": attack.get("body") or attack.get("payload"),
             }
-            response = await executor.execute(payload)
+            # Executor handles the request and retries
+            # Updated to use execute_attack with unpacked arguments as expected by Executor class
+            response = await executor.execute_attack(
+                method=payload["method"],
+                path=attack.get("path", "/"),
+                payload=payload["body"],
+                headers=payload["headers"]
+            )
             all_results.append(response)
 
             # Standard Analysis
@@ -356,62 +369,86 @@ class Orchestrator:
         
         target_cfg = self.config.get("target", {})
         auth_cfg = self.config.get("auth", {})
-        executor = Executor(
+        
+        # Extract retry settings from executor config or nested 'retry' block
+        executor_config = self.config.get("executor", {})
+        retry_config = executor_config.get("retry", {})
+
+        # Initialize Executor with Context Manager to handle connections
+        async with Executor(
             base_url=target_cfg.get("base_url", ""),
             auth_type=auth_cfg.get("type", "none"),
             auth_token=auth_cfg.get("token"),
-            rate_limit=self.config.get("rate_limit", 10),
-            timeout=self.config.get("timeout", 30),
-        )
-        
-        graph = self._build_graph(executor)
-        
-        initial_state: AgentState = {
-            "targets": [],
-            "openapi_spec": None,
-            "attack_profiles": [],
-            "planned_attacks": [],
-            "results": [],
-            "findings": [],
-            "recon_results": {},
-            "nl_plan": None
-        }
-
-        # Handle resume
-        if self.resume:
-            checkpoint = load_checkpoint(self.checkpoint_file)
-            if checkpoint:
-                # Restore available state from checkpoint fields
-                if checkpoint.recon_results:
-                    initial_state["recon_results"] = checkpoint.recon_results
-                if checkpoint.vulnerabilities:
-                    initial_state["findings"] = checkpoint.vulnerabilities
-                console.print("[bold green]🔄 Resuming from checkpoint...[/bold green]")
-
-        try:
-            final_state = await graph.ainvoke(initial_state)
+            rate_limit=executor_config.get("rate_limit", 10),
+            timeout=executor_config.get("timeout", 30),
+            retry_config=retry_config
+        ) as executor:
             
-            # Save checkpoint (implied success if we got here)
-            save_checkpoint(CheckpointData(
-                target_url=self.config.get("target", {}).get("base_url", ""),
-                config_hash=calculate_config_hash(self.config),
-                completed_profiles=[],
-                vulnerabilities=final_state.get("findings", []),
-                timestamp=time.time(),
-                recon_results=final_state.get("recon_results", {}),
-            ), self.checkpoint_file)
-
-            return {
-                "status": "success",
-                "summary": {
-                    "tested_endpoints": len(final_state.get("results", [])),
-                    "vulnerabilities_found": len(final_state.get("findings", []))
-                },
-                "findings": final_state.get("findings", [])
+            graph = self._build_graph(executor)
+            
+            initial_state: AgentState = {
+                "targets": [],
+                "openapi_spec": None,
+                "attack_profiles": [],
+                "planned_attacks": [],
+                "results": [],
+                "findings": [],
+                "recon_results": {},
+                "nl_plan": None   
             }
-        except Exception as e:
-            logger.exception("Orchestrator execution failed")
-            return {"status": "failed", "error": str(e)}
+
+            # Handle resume
+            if self.resume:
+                checkpoint = load_checkpoint(self.checkpoint_file)
+                if checkpoint:
+                    # Restore available state from checkpoint fields
+                    if checkpoint.recon_results:
+                        initial_state["recon_results"] = checkpoint.recon_results
+                    if checkpoint.vulnerabilities:
+                        initial_state["findings"] = checkpoint.vulnerabilities
+                    console.print("[bold green]🔄 Resuming from checkpoint...[/bold green]")
+
+            try:
+                final_state = await graph.ainvoke(initial_state)
+                
+                # Save checkpoint (implied success if we got here)
+                save_checkpoint(CheckpointData(
+                    target_url=self.config.get("target", {}).get("base_url", ""),
+                    config_hash=calculate_config_hash(self.config),
+                    completed_profiles=[],
+                    vulnerabilities=final_state.get("findings", []),
+                    timestamp=time.time(),
+                    recon_results=final_state.get("recon_results", {}),
+                ), self.checkpoint_file)
+
+                # Generate report
+                reporter_cfg = self.config.get("reporting", {})
+                reporter = Reporter(
+                    output_path=reporter_cfg.get("output_path", "./reports"),
+                    output_format=reporter_cfg.get("format", "html"),
+                )
+                
+                target_url = target_cfg.get("base_url", "")
+                
+                report_file = reporter.generate(
+                    {"vulnerabilities": final_state.get("findings", [])}, target_url
+                )
+                
+                console.print(
+                    f"[bold cyan] Report generated:[/bold cyan] [underline]{report_file}[/underline]"
+                )
+
+                return {
+                    "status": "success",
+                    "summary": {
+                        "tested_endpoints": len(final_state.get("results", [])),
+                        "vulnerabilities_found": len(final_state.get("findings", []))
+                    },
+                    "findings": final_state.get("findings", [])
+                }
+            except Exception as e:
+                logger.exception("Orchestrator execution failed")
+                return {"status": "failed", "error": str(e)}
 
     def _build_graph(self, executor: Any) -> StateGraph:
         """Build the LangGraph workflow."""
