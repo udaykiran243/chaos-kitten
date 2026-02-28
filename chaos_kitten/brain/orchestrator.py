@@ -194,11 +194,87 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
 
     for attack in planned_attacks:
         try:
+            # Check for concurrency attack
+            if attack.get("concurrency"):
+                concurrency_opts = attack.get("concurrency", {})
+                try:
+                    count = int(concurrency_opts.get("count", 5))
+                except (ValueError, TypeError):
+                    count = 5
+                console.print(f"[bold cyan]⚡ Launching concurrent attack ({count} requests) on {attack.get('path')}...[/bold cyan]")
+                
+                base_payload = {
+                    "method": attack.get("method", "GET"),
+                    "url": f"{base_url}{attack.get('path', '/')}",
+                    "headers": attack.get("headers", {}),
+                    "body": attack.get("body") or attack.get("payload"),
+                }
+                
+                # Execute requests concurrently
+                tasks = [executor.execute(base_payload) for _ in range(count)]
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Custom analysis for race conditions
+                valid_responses = [r for r in responses if not isinstance(r, Exception)]
+                if valid_responses:
+                    # Check if all/multiple succeeded where only one should have
+                    success_count = sum(1 for r in valid_responses if 200 <= r.get("status_code", 500) < 300)
+                    if success_count > 1:
+                        severity = attack.get("severity", "high")
+                        finding = {
+                            "type": attack.get("type", "race_condition"),
+                            "name": attack.get("name", "Race Condition Detected"),
+                            "description": f"Potential race condition: {success_count}/{count} concurrent requests succeeded.",
+                            "severity": severity,
+                            "evidence": f"Responses: {[r.get('status_code') for r in valid_responses]}",
+                            "recommendation": attack.get("remediation", "Implement proper locking or atomic transactions."),
+                            "endpoint": attack.get("path")
+                        }
+                        all_findings.append(finding)
+                        console.print(f"[red]🚨 Race condition detected! ({success_count} successes)[/red]")
+                    all_results.extend(valid_responses)
+                continue
+
+            # Check for workflow bypass attack
+            if attack.get("workflow"):
+                workflow_steps = attack.get("workflow", [])
+                console.print(f"[bold cyan]🔄 Executing workflow attack ({len(workflow_steps)} steps): {attack.get('name')}...[/bold cyan]")
+                
+                step_results = []
+                for step in workflow_steps:
+                    step_payload = {
+                        "method": step.get("method", "GET"),
+                        "url": f"{base_url}{step.get('path', '/')}",
+                        "headers": step.get("headers", {}) or attack.get("headers", {}), # Inherit headers
+                        "body": step.get("body") or step.get("payload"),
+                    }
+                    response = await executor.execute(step_payload)
+                    step_results.append(response)
+                    
+                    if not (200 <= response.get("status_code", 500) < 300):
+                         # If a step fails, usually the workflow is broken, but for negative testing
+                         # we might expect failure or success depending on the goal.
+                         # Assuming we want to complete the flow to test bypass.
+                         # If "success_indicators" match the FINAL response, we are good.
+                         pass
+                
+                # Analyze final result (or specific step results if needed)
+                final_response = step_results[-1] if step_results else {}
+                
+                # Use standard analyzer for the final result
+                analysis = analyzer.analyze(final_response, attack)
+                if analysis:
+                    all_findings.append(analysis)
+                    console.print(f"[red]🚨 Vulnerability found: {analysis.vulnerability_type}[/red]")
+                
+                all_results.extend(step_results)
+                continue
+
             payload = {
                 "method": attack.get("method", "GET"),
                 "url": f"{base_url}{attack.get('path', '/')}",
                 "headers": attack.get("headers", {}),
-                "body": attack.get("body"),
+                "body": attack.get("body") or attack.get("payload"),
             }
             response = await executor.execute(payload)
             all_results.append(response)
