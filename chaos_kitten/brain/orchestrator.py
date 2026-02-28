@@ -227,9 +227,17 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                 from chaos_kitten.paws.analyzer import Finding, Severity as PawsSeverity
                 
                 # Map error category to PawsSeverity? Or keep as high/critical.
+                severity_map = {
+                    "sql_injection": PawsSeverity.CRITICAL,
+                    "command_injection": PawsSeverity.CRITICAL,
+                    "xxe": PawsSeverity.HIGH,
+                    "nosql_injection": PawsSeverity.HIGH,
+                    "path_traversal": PawsSeverity.MEDIUM,
+                }
+                
                 error_finding = Finding(
                     vulnerability_type=f"Potential {cat} (Error Leak)",
-                    severity=PawsSeverity.HIGH,
+                    severity=severity_map.get(cat, PawsSeverity.MEDIUM),
                     evidence=f"Error patterns matched: {inds}",
                     endpoint=f"{attack.get('method')} {attack.get('path')}",
                     payload=str(payload.get('body')),

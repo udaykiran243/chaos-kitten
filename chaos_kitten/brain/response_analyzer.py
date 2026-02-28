@@ -55,20 +55,18 @@ class ResponseAnalyzer:
                 r"SQLSTATE",
             ],
             "nosql_injection": [
-                 r"mongo", 
-                 r"undefined", 
-                 r"cannot read property"
+                 r"\bMongoError\b",
+                 r"E11000 duplicate key",
+                 r"cannot read property .* of undefined"
             ],
             "command_injection": [
-                r"command not found", 
-                r"syntax error", 
-                r"No such file"
+                r"(?:/bin/sh|bash): .*command not found",
+                r"sh: .*syntax error near"
             ],
             "xxe": [
-                r"DOCTYPE", 
-                r"ENTITY", 
-                r"XML", 
-                r"Fatal error"
+                r"DOCTYPE is disallowed",
+                r"Entity .* not defined",
+                r"XML parser.*external entity"
             ],
             "secrets": [
                 # AWS: AKIA followed by 16 chars (simplified)
@@ -93,7 +91,7 @@ class ResponseAnalyzer:
                 r"\/bin\/bash",
                 r"win\.ini",
                 r"system\.ini",
-                r"Permission denied",
+                r"(?:fopen|include|readfile)\(.*\): .*Permission denied",
                 r"file not readable",
             ]
         }
@@ -204,7 +202,7 @@ class ResponseAnalyzer:
             try:
                 # Attempt to stringify if it's bytes or other object
                 body = str(body)
-            except Exception:
+            except (TypeError, ValueError, AttributeError):
                 body = ""
             
         indicators = []

@@ -101,13 +101,12 @@ def test_analyze_error_nosqli(analyzer):
     """Test detection of NoSQL Injection error messages."""
     response = {
         "status_code": 500,
-        "body": "ReferenceError: mongo is not defined"
+        "body": "MongoError: E11000 duplicate key error collection"
     }
     result = analyzer.analyze_error_messages(response)
     
     assert result["error_category"] == "nosql_injection"
     assert result["confidence"] >= 0.7
-    assert r"mongo" in result["indicators"]
 
 def test_analyze_error_command_injection(analyzer):
     """Test detection of Command Injection error messages."""
@@ -118,25 +117,21 @@ def test_analyze_error_command_injection(analyzer):
     result = analyzer.analyze_error_messages(response)
     
     assert result["error_category"] == "command_injection"
-    assert r"command not found" in result["indicators"]
+    # Check for new specific pattern
+    expected_pattern = r"(?:/bin/sh|bash): .*command not found"
+    assert expected_pattern in result["indicators"]
 
 def test_analyze_error_xxe(analyzer):
     """Test detection of XXE error messages."""
     response = {
         "status_code": 400,
-        "body": "DOMDocument::loadXML(): Fatal Error: Entity 'xxe' not defined"
+        "body": "XML parser: external entity not defined"
     }
     result = analyzer.analyze_error_messages(response)
     
-    # Depending on patterns, might match ENTITY or Fatal Error
     assert result["error_category"] == "xxe"
-    # Should match either ENTITY or Fatal Error
-    matched = False
-    for pat in [r"ENTITY", r"Fatal error"]:
-        if pat in result["indicators"]:
-            matched = True
-            break
-    assert matched
+    expected_pattern = r"XML parser.*external entity"
+    assert expected_pattern in result["indicators"]
 
 def test_analyze_error_path_traversal(analyzer):
     """Test detection of Path Traversal error messages."""
@@ -147,7 +142,8 @@ def test_analyze_error_path_traversal(analyzer):
     result = analyzer.analyze_error_messages(response)
     
     assert result["error_category"] == "path_traversal"
-    assert r"Permission denied" in result["indicators"]
+    expected_pattern = r"(?:fopen|include|readfile)\(.*\): .*Permission denied"
+    assert expected_pattern in result["indicators"]
 
 def test_analyze_error_multiple_indicators(analyzer):
     """Test confidence calculation/handling when multiple patterns match."""
