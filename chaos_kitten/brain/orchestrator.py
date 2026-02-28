@@ -194,7 +194,10 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
             # Check for concurrency attack
             if attack.get("concurrency"):
                 concurrency_opts = attack.get("concurrency", {})
-                count = int(concurrency_opts.get("count", 5))
+                try:
+                    count = int(concurrency_opts.get("count", 5))
+                except (ValueError, TypeError):
+                    count = 5
                 console.print(f"[bold cyan]⚡ Launching concurrent attack ({count} requests) on {attack.get('path')}...[/bold cyan]")
                 
                 base_payload = {
@@ -221,8 +224,8 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                             "description": f"Potential race condition: {success_count}/{count} concurrent requests succeeded.",
                             "severity": severity,
                             "evidence": f"Responses: {[r.get('status_code') for r in valid_responses]}",
-                            "remediation": attack.get("remediation", "Implement proper locking or atomic transactions."),
-                            "location": attack.get("path")
+                            "recommendation": attack.get("remediation", "Implement proper locking or atomic transactions."),
+                            "endpoint": attack.get("path")
                         }
                         all_findings.append(finding)
                         console.print(f"[red]🚨 Race condition detected! ({success_count} successes)[/red]")
@@ -239,7 +242,7 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                     step_payload = {
                         "method": step.get("method", "GET"),
                         "url": f"{base_url}{step.get('path', '/')}",
-                        "headers": step.get("headers", {}) or attack.get("headers", {}), # Inhert headers
+                        "headers": step.get("headers", {}) or attack.get("headers", {}), # Inherit headers
                         "body": step.get("body") or step.get("payload"),
                     }
                     response = await executor.execute(step_payload)
