@@ -60,7 +60,6 @@ async def run_recon(state: AgentState, app_config: Dict[str, Any], silent: bool 
         return {"recon_results": state["recon_results"]}
 
     try:
-        from chaos_kitten.brain.recon import ReconEngine
         engine = ReconEngine(app_config)
         results = await engine.run()
 
@@ -175,6 +174,8 @@ async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[st
 async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict[str, Any]) -> Dict[str, Any]:
     """Execute planned attacks and analyze responses."""
     from chaos_kitten.paws.analyzer import ResponseAnalyzer
+    # Feature 88: Import new ErrorAnalyzer
+    from chaos_kitten.brain.response_analyzer import ResponseAnalyzer as ErrorAnalyzer
     
     console.print("[bold blue]⚔️  Executing Attacks...[/bold blue]")
 
@@ -186,6 +187,8 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
     target_cfg = app_config.get("target", {})
     base_url = target_cfg.get("base_url", "")
     analyzer = ResponseAnalyzer()
+    error_analyzer = ErrorAnalyzer()
+    
     all_results = []
     all_findings = []
 
@@ -276,9 +279,49 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
             response = await executor.execute(payload)
             all_results.append(response)
 
-            finding = analyzer.analyze(response, attack)
+            # Standard Analysis
+            finding = analyzer.analyze(response, attack, endpoint=f"{attack.get('method')} {attack.get('path')}", payload=str(payload.get('body')))
             if finding:
                 all_findings.extend(finding if isinstance(finding, list) else [finding])
+            
+            # Feature 88: Error Analysis
+            # Normalize response data for ErrorAnalyzer
+            response_data = {
+                "body": response.get("body", response.get("response_body", "")),
+                "status_code": response.get("status_code", 0),
+                "elapsed_ms": response.get("elapsed_ms", response.get("response_time", 0)),
+            }
+            
+            error_res = error_analyzer.analyze_error_messages(response_data)
+            if error_res.get("error_category"):
+                cat = error_res["error_category"]
+                conf = error_res.get("confidence", 0.0)
+                inds = error_res.get("indicators", [])
+                
+                # Create a Finding-like dict or object compatible with existing findings list
+                # Assuming simple dict for now, or using Finding class if imported
+                from chaos_kitten.paws.analyzer import Finding, Severity as PawsSeverity
+                
+                # Map error category to PawsSeverity? Or keep as high/critical.
+                severity_map = {
+                    "sql_injection": PawsSeverity.CRITICAL,
+                    "command_injection": PawsSeverity.CRITICAL,
+                    "xxe": PawsSeverity.HIGH,
+                    "nosql_injection": PawsSeverity.HIGH,
+                    "path_traversal": PawsSeverity.HIGH,
+                }
+                
+                error_finding = Finding(
+                    vulnerability_type=f"Potential {cat} (Error Leak)",
+                    severity=severity_map.get(cat, PawsSeverity.MEDIUM),
+                    evidence=f"Error patterns matched: {inds}",
+                    endpoint=f"{attack.get('method')} {attack.get('path')}",
+                    payload=str(payload.get('body')),
+                    recommendation="Review error handling and sanitize inputs.",
+                    confidence=conf
+                )
+                all_findings.append(error_finding)
+
         except Exception as e:
             logger.warning(f"Attack execution failed for {attack.get('path')}: {e}")
 
@@ -310,6 +353,7 @@ class Orchestrator:
             return {"status": "failed", "error": "langgraph is not installed"}
 
         from chaos_kitten.paws.executor import Executor
+        
         target_cfg = self.config.get("target", {})
         auth_cfg = self.config.get("auth", {})
         executor = Executor(
