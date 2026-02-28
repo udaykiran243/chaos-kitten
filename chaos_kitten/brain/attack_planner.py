@@ -29,6 +29,9 @@ class AttackProfile:
     success_indicators: dict[str, Any]
     remediation: str = ""
     references: list[str] = field(default_factory=list)
+    workflow: list[dict[str, Any]] = field(default_factory=list)
+    concurrency: dict[str, Any] = field(default_factory=dict)
+    target_paths: list[str] = field(default_factory=list)
 
 
 ATTACK_PLANNING_PROMPT = """You are a security expert analyzing an API endpoint for vulnerabilities.
@@ -131,8 +134,6 @@ class AttackPlanner:
                     "name",
                     "category",
                     "severity",
-                    "payloads",
-                    "target_fields",
                 ]
                 missing = [field_name for field_name in required_fields if field_name not in data]
 
@@ -144,7 +145,17 @@ class AttackPlanner:
 
                 payloads = data.get("payloads") or []
                 target_fields = data.get("target_fields") or []
-                if not isinstance(payloads, list) or not isinstance(target_fields, list):
+                workflow = data.get("workflow") or []
+                concurrency = data.get("concurrency") or {}
+
+                if not (payloads and target_fields) and not workflow and not concurrency:
+                    logger.warning(
+                        "Skipping %s: Must contain either payloads/target_fields or workflow or concurrency definition",
+                        file_path,
+                    )
+                    continue
+
+                if (payloads and not isinstance(payloads, list)) or (target_fields and not isinstance(target_fields, list)):
                     logger.warning(
                         "Skipping %s: 'payloads' and 'target_fields' must be lists",
                         file_path,
@@ -161,6 +172,9 @@ class AttackPlanner:
                     success_indicators=data.get("success_indicators", {}) or {},
                     remediation=str(data.get("remediation", "")),
                     references=[str(r) for r in (data.get("references", []) or [])],
+                    workflow=workflow,
+                    concurrency=concurrency,
+                    target_paths=data.get("target_paths") or [],
                 )
                 self.attack_profiles.append(profile)
                 logger.debug("Loaded attack profile: %s", profile.name)
@@ -321,6 +335,64 @@ class AttackPlanner:
 
         attacks: list[dict[str, Any]] = []
         for profile in self.attack_profiles:
+            # Special handling for Business Logic / Workflow / Concurrency
+            if profile.workflow or profile.concurrency:
+                # Check path match
+                path_match = False
+                if profile.target_paths:
+                    for tp in profile.target_paths:
+                        try:
+                            if re.search(tp, path):
+                                path_match = True
+                                break
+                        except re.error:
+                            if tp in path:
+                                path_match = True
+                                break
+                
+                # Check field match
+                field_match = False
+                matched_field = None
+                matched_location = None
+                
+                if not path_match and profile.target_fields:
+                    for field_name, location in fields:
+                        if any(
+                            self._field_matches_target(field_name, target)
+                            for target in profile.target_fields
+                        ):
+                            field_match = True
+                            matched_field = field_name
+                            matched_location = location
+                            break
+                
+                if path_match or field_match:
+                    indicators = profile.success_indicators or {}
+                    attacks.append({
+                        "type": profile.category,
+                        "name": profile.name,
+                        "profile_name": profile.name,
+                        "description": profile.description,
+                        "endpoint": path,
+                        "path": path,
+                        "method": method,
+                        "field": matched_field or "N/A",  # Might be N/A for path-based
+                        "location": matched_location or "N/A",
+                        "workflow": profile.workflow,
+                        "concurrency": profile.concurrency,
+                        "payloads": [], # No payloads for logic attacks usually
+                        "payload": {},
+                        "target_param": matched_field or "N/A",
+                        "expected_status": self._expected_status(indicators),
+                        "priority": self._severity_to_priority(profile.severity),
+                        "severity": profile.severity,
+                        "success_indicators": indicators,
+                        "expected_indicators": indicators,
+                        "remediation": profile.remediation,
+                        "references": profile.references,
+                    })
+                continue
+
             for field_name, location in fields:
                 if any(
                     self._field_matches_target(field_name, target)
@@ -417,97 +489,8 @@ class AttackPlanner:
             properties = schema.get("properties", {})
             for prop_name, prop_details in properties.items():
                 p_type = prop_details.get("type", "string")
-                targetable_fields.append({"name": prop_name, "location": "body", "type": p_type})
-
-        # Iterate through loaded profiles and find matches
-        for profile in self.attack_profiles:
-            # Special handling for GraphQL Security profile
-            if profile.name == "GraphQL Security":
-                # Check if endpoint path ends with /graphql
-                if endpoint_path.endswith("/graphql") or "graphql" in endpoint_path.lower():
-                    # Plan attacks for this endpoint
-                    # GraphQL usually has a single entry point, so we attack the 'query' or body
-                    attack_plan = {
-                        "profile_name": profile.name,
-                        "endpoint": endpoint_path,
-                        "method": method,
-                        "field": "query", # Virtual field name
-                        "location": "graphql", # Special location for executor
-                        "payloads": profile.payloads,
-                        "expected_indicators": profile.success_indicators,
-                        "severity": profile.severity
-                    }
-                    planned_attacks.append(attack_plan)
-                continue
-
-            # Special handling for file upload profile
-            if profile.name == "File Upload Bypass":
-                # Check if endpoint accepts multipart/form-data
-                request_body = endpoint.get("requestBody") or {}
-                content = request_body.get("content", {})
-                if "multipart/form-data" in content or "application/octet-stream" in content:
-                    # Find file fields
-                    schema = content.get("multipart/form-data", {}).get("schema", {}) or \
-                             content.get("application/octet-stream", {}).get("schema", {})
-                    
-                    properties = schema.get("properties", {})
-                    for prop_name, prop_details in properties.items():
-                        # Heuristic: verify if it looks like a file upload
-                        # OpenAPI 3.0: type: string, format: binary
-                        p_type = prop_details.get("type")
-                        p_format = prop_details.get("format")
-                        
-                        is_file = (p_type == "string" and p_format in ("binary", "base64")) or \
-                                  (prop_name.lower() in profile.target_fields)
-
-                        if is_file:
-                            attack_plan = {
-                                "profile_name": profile.name,
-                                "endpoint": endpoint_path,
-                                "method": method,
-                                "field": prop_name,
-                                "location": "file", # Special location for executor
-                                "payloads": profile.payloads,
-                                "expected_indicators": profile.success_indicators,
-                                "severity": profile.severity
-                            }
-                            planned_attacks.append(attack_plan)
-                continue
-
-            # ... (Standard logic for other profiles)
-            
-            for field_info in targetable_fields:
-                field_name = field_info["name"]
-                _ = field_info["type"] # Unused for now, but keeping for future type awareness
-                
-                # Check 1: Field name match (Exact or Fuzzy)
-                # Exact match
-                is_match = field_name in profile.target_fields
-                
-                # Fuzzy match (e.g., "user_email" matches "email" if "email" is a distinct word part)
-                if not is_match:
-                    # properly handle snake_case and other delimiters
-                    parts = re.split(r'[^a-zA-Z0-9]', field_name.lower())
-                    for target in profile.target_fields:
-                        if target.lower() in parts:
-                            is_match = True
-                            break
-                            
-                if is_match:
-                    # Check 2: Type compatibility (Basic)
-                    # Use categories to determine if type mismatch is critical
-                    # e.g., SQLi (string) vs ID (integer) - sometimes valid, sometimes not.
-                    # For now, we'll be permissive but prioritize string fields for injections.
-                    
-                    # Logic for filtering based on method/category
-                    # e.g. Don't test body interactions on GET requests unless strictly specific
-                    if field_info["location"] == "body" and method == "get":
-                        continue
-                    schema = media_obj.get("schema") or {}
-                    properties = schema.get("properties") if isinstance(schema, dict) else None
-                    if isinstance(properties, dict):
-                        for field_name in properties.keys():
-                            fields.append((str(field_name), "body"))
+                # Removed broken logic that tried to use targetable_fields before definition
+                fields.append((str(prop_name), "body"))
 
         if not fields:
             fields.append(("q", "query"))

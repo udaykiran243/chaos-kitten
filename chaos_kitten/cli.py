@@ -348,7 +348,8 @@ def diff(
                 raise typer.Exit(code=1)
 
     except ImportError as e:
-        console.print(f"[bold red]❌ Missing dependencies: {e}[/bold red]")
+        console.print(f"[bold red]❌ Import Error:[/bold red] {e}")
+        raise typer.Exit(code=1)
         raise typer.Exit(code=1) from e
 
     try:

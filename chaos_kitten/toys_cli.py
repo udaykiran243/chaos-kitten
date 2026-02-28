@@ -173,6 +173,7 @@ def install_toy(
             for pattern in suspicious_patterns:
                 if re.search(pattern, content):
                     console.print(f"[yellow]⚠️ Profile contains suspicious pattern: {pattern}[/yellow]")
+                    logger.warning(f"Profile contains suspicious pattern: {pattern}")
 
             # Save temporarily to validate schema
             temp_path = toys_dir / f".temp_{slug}{ext}"
