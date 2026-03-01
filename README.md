@@ -30,7 +30,8 @@
   <a href="#-features">Features</a> •
   <a href="#-how-it-works">How It Works</a> •
   <a href="#-installation">Installation</a> •
-  <a href="#-contributing">Contributing</a>
+  <a href="#-contributing">Contributing</a> •
+  <a href="#-contributors">Contributors</a>
 </p>
 
 ---
@@ -416,6 +417,20 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/contributing_guide.md](docs/con
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## 🤝 Contributors
+
+Thanks to all the amazing people who have contributed to Chaos Kitten! 🐱
+
+<p align="center">
+  <a href="https://github.com/mdhaarishussain/chaos-kitten/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=mdhaarishussain/chaos-kitten" alt="Contributors" />
+  </a>
+</p>
+
+Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) and join the fun!
 
 ---
 
