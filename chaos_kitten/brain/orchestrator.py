@@ -410,7 +410,57 @@ class Orchestrator:
 
             try:
                 final_state = await graph.ainvoke(initial_state)
-                
+
+                # ── Chaos Testing Phase ──────────────────────────
+                if self.chaos:
+                    from chaos_kitten.brain.chaos_engine import ChaosEngine
+
+                    # Build endpoint list from the parsed OpenAPI spec
+                    chaos_endpoints = []
+                    spec = final_state.get("openapi_spec") or {}
+                    for path, methods in spec.get("paths", {}).items():
+                        for method, details in methods.items():
+                            if method.upper() not in (
+                                "GET", "POST", "PUT", "PATCH", "DELETE",
+                            ):
+                                continue
+                            # Extract field names and types from requestBody
+                            fields: Dict[str, str] = {}
+                            required_fields: List[str] = []
+                            req_body = details.get("requestBody", {})
+                            content = req_body.get("content", {}) if req_body else {}
+                            json_schema = (
+                                content
+                                .get("application/json", {})
+                                .get("schema", {})
+                            )
+                            if json_schema:
+                                props = json_schema.get("properties", {})
+                                for fname, fmeta in props.items():
+                                    fields[fname] = fmeta.get("type", "string")
+                                required_fields = json_schema.get("required", [])
+
+                            chaos_endpoints.append({
+                                "path": path,
+                                "method": method.upper(),
+                                "fields": fields,
+                                "required_fields": required_fields,
+                            })
+
+                    engine = ChaosEngine(
+                        chaos_level=self.chaos_level, executor=executor,
+                    )
+                    target_url_chaos = target_cfg.get("base_url", "")
+                    chaos_findings = await engine.run_chaos_tests(
+                        target_url_chaos,
+                        endpoints=chaos_endpoints if chaos_endpoints else None,
+                    )
+
+                    # Merge chaos findings into the main findings list
+                    existing_findings = list(final_state.get("findings", []))
+                    existing_findings.extend(chaos_findings)
+                    final_state["findings"] = existing_findings
+
                 # Save checkpoint (implied success if we got here)
                 save_checkpoint(CheckpointData(
                     target_url=self.config.get("target", {}).get("base_url", ""),
