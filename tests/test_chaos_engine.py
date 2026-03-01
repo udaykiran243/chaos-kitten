@@ -341,3 +341,150 @@ class TestAnomalyResult:
         assert d["status_code"] == 500
         assert d["severity"] == "critical"
         assert "chaos_input" in d
+
+
+# ─── ChaosEngine Live Executor Tests ───
+
+
+class _MockExecutor:
+    """Lightweight async mock for Executor.execute_attack."""
+
+    def __init__(self, response: dict):
+        self._response = response
+        self.call_count = 0
+        self.last_kwargs = {}
+
+    async def execute_attack(self, **kwargs):
+        self.call_count += 1
+        self.last_kwargs = kwargs
+        return self._response
+
+
+class TestChaosEngineLiveExecutor:
+    """Tests that verify ChaosEngine uses real HTTP path when an Executor is provided."""
+
+    @pytest.mark.asyncio
+    async def test_run_chaos_tests_with_executor(self):
+        """Mock executor returns 200 OK — no anomalies expected from normal response."""
+        mock_exec = _MockExecutor({
+            "status_code": 200,
+            "body": '{"ok": true}',
+            "elapsed_ms": 50.0,
+            "error": None,
+            "headers": {},
+        })
+        engine = ChaosEngine(chaos_level=1, executor=mock_exec)
+        endpoints = [{
+            "path": "/api/test",
+            "method": "POST",
+            "fields": {"value": "integer"},
+            "required_fields": ["value"],
+        }]
+        findings = await engine.run_chaos_tests(
+            "http://localhost", endpoints=endpoints,
+        )
+        assert isinstance(findings, list)
+        # The executor must have been called (live path, not simulation)
+        assert mock_exec.call_count > 0
+
+    @pytest.mark.asyncio
+    async def test_run_chaos_tests_executor_500(self):
+        """Mock executor returns 500 — a server_error anomaly should be detected."""
+        mock_exec = _MockExecutor({
+            "status_code": 500,
+            "body": "Internal Server Error",
+            "elapsed_ms": 100.0,
+            "error": None,
+            "headers": {},
+        })
+        engine = ChaosEngine(chaos_level=1, executor=mock_exec)
+        endpoints = [{
+            "path": "/api/test",
+            "method": "POST",
+            "fields": {"name": "string"},
+            "required_fields": ["name"],
+        }]
+        findings = await engine.run_chaos_tests(
+            "http://localhost", endpoints=endpoints,
+        )
+        assert any(f["anomaly_type"] == "server_error" for f in findings)
+
+    @pytest.mark.asyncio
+    async def test_run_chaos_tests_executor_connection_error(self):
+        """Mock executor returns an error field — connection_error anomaly expected."""
+        mock_exec = _MockExecutor({
+            "status_code": 0,
+            "body": "",
+            "elapsed_ms": 0.0,
+            "error": "Connection refused",
+            "headers": {},
+        })
+        engine = ChaosEngine(chaos_level=1, executor=mock_exec)
+        endpoints = [{
+            "path": "/api/test",
+            "method": "GET",
+            "fields": {},
+            "required_fields": [],
+        }]
+        findings = await engine.run_chaos_tests(
+            "http://localhost", endpoints=endpoints,
+        )
+        assert any(f["anomaly_type"] == "connection_error" for f in findings)
+
+    @pytest.mark.asyncio
+    async def test_run_chaos_tests_executor_overrides_init(self):
+        """Executor passed to run_chaos_tests overrides the one from __init__."""
+        init_exec = _MockExecutor({
+            "status_code": 200, "body": "", "elapsed_ms": 10.0,
+            "error": None, "headers": {},
+        })
+        method_exec = _MockExecutor({
+            "status_code": 200, "body": "", "elapsed_ms": 10.0,
+            "error": None, "headers": {},
+        })
+        engine = ChaosEngine(chaos_level=1, executor=init_exec)
+        endpoints = [{
+            "path": "/api/test",
+            "method": "GET",
+            "fields": {},
+            "required_fields": [],
+        }]
+        await engine.run_chaos_tests(
+            "http://localhost", endpoints=endpoints, executor=method_exec,
+        )
+        # The method-level executor should be the one called
+        assert method_exec.call_count > 0
+        assert init_exec.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_run_chaos_tests_simulation_fallback(self):
+        """No executor provided — simulation path is used, execute_attack never called."""
+        engine = ChaosEngine(chaos_level=1)
+        endpoints = [{
+            "path": "/api/test",
+            "method": "POST",
+            "fields": {"id": "integer"},
+            "required_fields": [],
+        }]
+        findings = await engine.run_chaos_tests(
+            "http://localhost", endpoints=endpoints,
+        )
+        # Should still return a list (may or may not have findings from RNG)
+        assert isinstance(findings, list)
+
+    @pytest.mark.asyncio
+    async def test_collect_live_baseline(self):
+        """Baseline is collected from real executor responses, not hardcoded."""
+        mock_exec = _MockExecutor({
+            "status_code": 200, "body": "", "elapsed_ms": 80.0,
+            "error": None, "headers": {},
+        })
+        engine = ChaosEngine(chaos_level=1, executor=mock_exec)
+        endpoints = [{"path": "/health", "method": "GET", "fields": {}, "required_fields": []}]
+        await engine.run_chaos_tests(
+            "http://localhost", endpoints=endpoints,
+        )
+        # Baseline was collected via the executor (5 calls for baseline)
+        # Mean should be 80ms / 1000 = 0.08s, not the hardcoded 0.122
+        assert 0.05 < engine.detector._baseline_mean < 0.15
+

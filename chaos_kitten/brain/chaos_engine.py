@@ -6,11 +6,17 @@ Unicode edge cases, and missing required fields to discover undocumented
 crashes, 500 errors, and hidden behaviors.
 """
 
+import logging
 import random
 import string
 import time
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from chaos_kitten.paws.executor import Executor
+
+logger = logging.getLogger(__name__)
 
 
 class ChaosInput:
@@ -552,15 +558,19 @@ class ChaosEngine:
     behaviors.
     """
 
-    def __init__(self, chaos_level: int = 3) -> None:
+    def __init__(self, chaos_level: int = 3, executor: Optional["Executor"] = None) -> None:
         """Initialize the chaos engine.
 
         Args:
             chaos_level: Intensity from 1 (gentle) to 5 (maximum carnage).
+            executor: Optional Executor instance for making real HTTP requests.
+                      When provided, chaos tests send actual traffic to the target.
+                      When None, falls back to simulated responses (legacy behavior).
         """
         self.chaos_level = max(1, min(5, chaos_level))
         self.generator = ChaosGenerator(chaos_level=self.chaos_level)
         self.detector = AnomalyDetector()
+        self.executor = executor
         self.findings: List[AnomalyResult] = []
 
     def generate_chaos_payloads(
@@ -657,23 +667,34 @@ class ChaosEngine:
         self,
         target_url: str,
         endpoints: Optional[List[Dict[str, Any]]] = None,
+        executor: Optional["Executor"] = None,
     ) -> List[Dict[str, Any]]:
         """Run chaos tests against target endpoints.
 
-        This is a simulation that demonstrates the chaos testing flow.
-        When the executor is fully implemented, this will make real requests.
+        When an executor is provided (or was set at init), chaos payloads are
+        sent as real HTTP requests via ``executor.execute_attack()`` and the
+        actual server responses are fed into ``AnomalyDetector.detect_anomalies``.
+        Without an executor the method falls back to the legacy probabilistic
+        simulation so that existing callers continue to work.
 
         Args:
             target_url: Base URL of the target.
             endpoints: List of endpoint definitions with fields and types.
+            executor: Optional Executor instance. Overrides the instance-level
+                      executor if provided.
 
         Returns:
             List of chaos findings as dicts.
         """
         import asyncio
 
+        # Prefer the executor supplied to this call; fall back to init-time one
+        active_executor = executor or self.executor
+        is_live = active_executor is not None
+
         print("\n🌪️  [CHAOS MODE] Starting chaos testing...")
         print("   Chaos Level: {} / 5".format(self.chaos_level))
+        print("   Mode: {}".format("LIVE (real HTTP)" if is_live else "SIMULATED"))
 
         level_labels = {
             1: "Gentle (basic type mismatches)",
@@ -682,14 +703,17 @@ class ChaosEngine:
             4: "Destructive (overflow + injection + nested attacks)",
             5: "Maximum Carnage (everything at once)",
         }
-        print("   Mode: {}".format(level_labels.get(self.chaos_level, "Unknown")))
+        print("   Intensity: {}".format(level_labels.get(self.chaos_level, "Unknown")))
 
         # Use simulated endpoints if none provided
         if not endpoints:
             endpoints = self._get_simulated_endpoints()
 
-        # Set baseline response times (simulated)
-        self.detector.set_baseline([0.1, 0.15, 0.12, 0.11, 0.13])
+        # Establish baseline response times
+        if is_live:
+            await self._collect_live_baseline(active_executor, endpoints)
+        else:
+            self.detector.set_baseline([0.1, 0.15, 0.12, 0.11, 0.13])
 
         total_tests = 0
         total_anomalies = 0
@@ -710,8 +734,13 @@ class ChaosEngine:
 
             for tc in test_cases:
                 total_tests += 1
-                # Simulate sending the request and getting a response
-                result = await self._simulate_chaos_request(tc)
+
+                if is_live:
+                    result = await self._execute_real_chaos_request(
+                        active_executor, tc
+                    )
+                else:
+                    result = await self._simulate_chaos_request(tc)
 
                 if result:
                     for anomaly in result:
@@ -726,7 +755,7 @@ class ChaosEngine:
                             )
                         )
 
-                # Small delay to avoid overwhelming output
+                # Small delay to avoid overwhelming the target
                 await asyncio.sleep(0.01)
 
         print("\n   📊 Chaos testing complete!")
@@ -734,6 +763,101 @@ class ChaosEngine:
         print("   Anomalies found: {}".format(total_anomalies))
 
         return [f.to_dict() for f in self.findings]
+
+    async def _collect_live_baseline(
+        self,
+        executor: "Executor",
+        endpoints: List[Dict[str, Any]],
+    ) -> None:
+        """Collect real baseline response times by sending benign requests.
+
+        Fires a small number of normal (non-mutated) requests so the
+        AnomalyDetector has realistic timing data for outlier detection.
+        """
+        baseline_times: List[float] = []
+        sample_ep = endpoints[0] if endpoints else {"path": "/", "method": "GET"}
+        path = sample_ep.get("path", "/")
+        method = sample_ep.get("method", "GET")
+
+        for _ in range(5):
+            resp = await executor.execute_attack(
+                method=method,
+                path=path,
+                payload=None,
+            )
+            elapsed_s = resp.get("elapsed_ms", 100.0) / 1000.0
+            if not resp.get("error"):
+                baseline_times.append(elapsed_s)
+
+        if baseline_times:
+            self.detector.set_baseline(baseline_times)
+        else:
+            # Fallback if all baseline requests failed
+            self.detector.set_baseline([0.1, 0.15, 0.12, 0.11, 0.13])
+
+    async def _execute_real_chaos_request(
+        self,
+        executor: "Executor",
+        test_case: Dict[str, Any],
+    ) -> Optional[List[AnomalyResult]]:
+        """Send a real chaos request via the Executor and detect anomalies.
+
+        Args:
+            executor: An initialised ``Executor`` instance (inside its
+                      ``async with`` context manager).
+            test_case: A test-case dict produced by ``generate_chaos_payloads``.
+
+        Returns:
+            List of ``AnomalyResult`` objects, or ``None`` if no anomalies.
+        """
+        chaos_input: ChaosInput = test_case["chaos_input"]
+        endpoint: str = test_case["endpoint"]
+        method: str = test_case["method"]
+        payload = test_case.get("payload")
+        headers = test_case.get("headers")
+
+        try:
+            resp = await executor.execute_attack(
+                method=method,
+                path=endpoint,
+                payload=payload,
+                headers=headers,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Chaos request failed for %s %s: %s", method, endpoint, exc
+            )
+            return [self.detector.detect_connection_error(
+                endpoint=endpoint,
+                method=method,
+                chaos_input=chaos_input,
+                error_message=str(exc),
+            )]
+
+        # Handle connection-level errors reported by the executor
+        error = resp.get("error")
+        if error:
+            return [self.detector.detect_connection_error(
+                endpoint=endpoint,
+                method=method,
+                chaos_input=chaos_input,
+                error_message=error,
+            )]
+
+        status_code = resp.get("status_code", 0)
+        elapsed_s = resp.get("elapsed_ms", 0.0) / 1000.0
+        body = resp.get("body", "")
+
+        anomalies = self.detector.detect_anomalies(
+            status_code=status_code,
+            response_time=elapsed_s,
+            response_body=body,
+            endpoint=endpoint,
+            method=method,
+            chaos_input=chaos_input,
+        )
+
+        return anomalies if anomalies else None
 
     async def _simulate_chaos_request(
         self, test_case: Dict[str, Any]
