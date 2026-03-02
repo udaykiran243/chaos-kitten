@@ -229,14 +229,15 @@ def scan(
         results = asyncio.run(orchestrator.run())
 
         # CORS Check from HEAD
-        if cors and target_url:
+        resolved_target = target or app_config.get("target", {}).get("base_url")
+        if cors and resolved_target:
             import httpx, asyncio
             from chaos_kitten.brain.cors import analyze_cors
             
             async def _cors_probe():
                 async with httpx.AsyncClient() as client:
                     try:
-                        resp = await client.get(target_url, headers={"Origin": "https://evil.example"}, timeout=10.0)
+                        resp = await client.get(resolved_target, headers={"Origin": "https://evil.example"}, timeout=10.0)
                         return dict(resp.headers)
                     except Exception as e:
                         if not silent:
