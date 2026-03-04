@@ -1,6 +1,5 @@
 import pytest
-import json
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from chaos_kitten.brain.orchestrator import execute_and_analyze
 
 @pytest.fixture
@@ -70,3 +69,16 @@ async def test_interactive_disabled(mock_state, mock_executor):
         assert not mock_ask.called
         
     mock_executor.execute_attack.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_interactive_mode_invalid_json(mock_state, mock_executor):
+    """Test invalid JSON input reverts to original payload."""
+    app_config = {"execution": {"interactive": True}, "target": {"base_url": "http://test.com"}}
+    
+    with patch("chaos_kitten.brain.orchestrator.Prompt.ask", side_effect=["m", "not-valid-json"]):
+        await execute_and_analyze(mock_state, mock_executor, app_config)
+        
+    mock_executor.execute_attack.assert_called_once()
+    # Should use original payload
+    assert mock_executor.execute_attack.call_args.kwargs["payload"] == {"key": "original"}
+
