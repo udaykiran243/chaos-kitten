@@ -65,7 +65,7 @@ payloads:
   - "http://①②⑦.⓪.⓪.①/"
   - "http://127.0.0.1.nip.io/"
   - "http://localtest.me/"
-  - "http://spoofed.burpcollaborator.net/"
+  - "http://<YOUR_OOB_DOMAIN>/"  # Replace with an out-of-band domain you control (e.g. Burp Collaborator, interactsh)
   - "http://%31%32%37%2E%30%2E%30%2E%31" # URL encoded 127.0.0.1
 
   # --- Cloud metadata endpoints (AWS) ---
@@ -155,3 +155,73 @@ success_indicators:
     - "Elasticsearch"
     - "PostgreSQL"
     - "SSH-2.0"
+
+  status_codes:
+    - 200
+    - 301
+    - 302
+
+  response_time_gt: 5  # seconds (for blind SSRF time-based detection)
+
+  headers_present:
+    - "X-Cloud-Trace-Context"
+    - "X-Goog-"
+
+# How to fix this vulnerability
+remediation: |
+  🔧 How to Fix SSRF Vulnerabilities:
+
+  1. **URL Allowlisting**: Only permit requests to known, trusted domains
+     ```python
+     ALLOWED_HOSTS = {"api.example.com", "cdn.example.com"}
+
+     def is_allowed(url: str) -> bool:
+         parsed = urllib.parse.urlparse(url)
+         return parsed.hostname in ALLOWED_HOSTS
+     ```
+
+  2. **Block Internal IP Ranges**: Deny requests to private/reserved IPs
+     ```python
+     import ipaddress
+
+     def is_internal(hostname: str) -> bool:
+         try:
+             ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+             return ip.is_private or ip.is_loopback or ip.is_link_local
+         except (socket.gaierror, ValueError):
+             return True  # Block if resolution fails
+     ```
+
+  3. **Disable Unnecessary Protocols**: Only allow http/https
+     ```python
+     parsed = urllib.parse.urlparse(user_url)
+     if parsed.scheme not in ("http", "https"):
+         raise ValueError("Unsupported protocol")
+     ```
+
+  4. **Block Cloud Metadata Endpoints**:
+     - Use IMDSv2 (token-required) on AWS
+     - Block 169.254.169.254 at the firewall/network level
+     - Set metadata concealment on GCP
+
+  5. **Use a Request Proxy/Gateway**:
+     - Route outbound requests through a vetted proxy
+     - Apply network-level egress filtering
+
+  6. **Validate After Redirect Resolution**:
+     - Re-check the final destination URL after following redirects
+     - Limit the number of redirects followed
+
+  Additional recommendations:
+  - Implement response filtering to prevent data leakage
+  - Log and monitor all server-side outbound requests
+  - Use network segmentation to limit blast radius
+  - Set strict timeouts on outbound requests
+
+references:
+  - "https://owasp.org/www-community/attacks/Server_Side_Request_Forgery"
+  - "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+  - "https://portswigger.net/web-security/ssrf"
+  - "https://portswigger.net/research/cracking-the-lens-targeting-https-hidden-attack-surface"
+
+cat_message: "I pounced on the wrong yarn ball! 🧶 (SSRF: server fetched an internal resource)"
