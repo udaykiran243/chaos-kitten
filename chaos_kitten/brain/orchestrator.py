@@ -181,7 +181,7 @@ async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[st
 
 def _interactive_prompt(attack: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Prompt user for confirmation/modification of an attack."""
-    payload = attack.get("body") if "body" in attack else attack.get("payload")
+    payload = attack.get("body") if attack.get("body") is not None else attack.get("payload")
     payload_str = json.dumps(payload, indent=2) if payload is not None else "None"
     
     console.print(Panel(
@@ -211,7 +211,7 @@ def _interactive_prompt(attack: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         try:
             new_payload = json.loads(new_payload_str)
             attack_copy = attack.copy()
-            if "body" in attack_copy:
+            if attack_copy.get("body") is not None:
                 attack_copy["body"] = new_payload
             else:
                 attack_copy["payload"] = new_payload
