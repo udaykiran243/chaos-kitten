@@ -204,3 +204,90 @@ class TestSpider:
         spider = Spider("http://example.com")
         dicts = spider.to_endpoint_dicts()
         assert dicts == []
+
+    @pytest.mark.asyncio
+    async def test_ssrf_external_url_blocked(self):
+        """External URLs injected into the queue must not be fetched."""
+        spider = Spider("http://example.com", max_depth=2)
+
+        fetch_urls = []
+
+        async def mock_get(url, **kwargs):
+            fetch_urls.append(str(url))
+            resp = MagicMock()
+            # Page with a malicious external link (attacker-controlled HTML)
+            resp.text = (
+                '<a href="http://169.254.169.254/latest/meta-data/">AWS</a>'
+                '<a href="http://localhost:6379/">Redis</a>'
+                '<a href="/safe-page">Safe</a>'
+            )
+            resp.headers = {"content-type": "text/html"}
+            return resp
+
+        mock_client = AsyncMock()
+        mock_client.get = mock_get
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await spider.crawl()
+
+        # None of the external URLs should have been fetched
+        for url in fetch_urls:
+            assert "169.254.169.254" not in url, f"SSRF: fetched cloud metadata URL {url}"
+            assert "localhost:6379" not in url, f"SSRF: fetched internal service URL {url}"
+
+    @pytest.mark.asyncio
+    async def test_non_html_responses_skipped(self):
+        """Non-HTML responses (JSON, images) should not be parsed for links."""
+        spider = Spider("http://example.com", max_depth=2)
+
+        async def mock_get(url, **kwargs):
+            resp = MagicMock()
+            if str(url) == "http://example.com":
+                resp.text = '<a href="/api/data">API</a>'
+                resp.headers = {"content-type": "text/html; charset=utf-8"}
+            else:
+                # /api/data returns JSON, NOT HTML
+                resp.text = '{"links": ["/api/secret"]}'
+                resp.headers = {"content-type": "application/json"}
+            return resp
+
+        mock_client = AsyncMock()
+        mock_client.get = mock_get
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            results = await spider.crawl()
+
+        # /api/secret should NOT be discovered since it was in a JSON response
+        assert "/api/secret" not in results["endpoints"]
+
+    @pytest.mark.asyncio
+    async def test_visited_paths_not_added_as_endpoints(self):
+        """Visited HTML page paths like /about should not appear as API endpoints."""
+        spider = Spider("http://example.com", max_depth=1)
+
+        async def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.text = '<a href="/about">About</a><script>fetch("/api/users")</script>'
+            resp.headers = {"content-type": "text/html"}
+            return resp
+
+        mock_client = AsyncMock()
+        mock_client.get = mock_get
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            results = await spider.crawl()
+
+        # /api/users should be found (from JS extraction)
+        assert "/api/users" in results["endpoints"]
+        # /about should NOT be in endpoints (it's just a page, not an API)
+        assert "/about" not in results["endpoints"]
+

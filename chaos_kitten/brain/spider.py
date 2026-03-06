@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import warnings
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
@@ -160,10 +161,15 @@ class Spider:
         queue: asyncio.Queue = asyncio.Queue()
         await queue.put((self.base_url, 0))
 
+        logger.warning(
+            "TLS certificate verification is disabled for spidering. "
+            "This is necessary for testing but exposes the spider to "
+            "potential MITM attacks in production environments."
+        )
         async with httpx.AsyncClient(
             timeout=self.timeout,
             follow_redirects=True,
-            verify=False,
+            verify=False,  # Required for local/staging targets with self-signed certs
         ) as client:
             workers = [
                 asyncio.create_task(self._worker(client, queue, semaphore))
@@ -220,10 +226,20 @@ class Spider:
         url: str,
         depth: int,
     ) -> None:
-        # Dedup & depth check
-        if url in self.visited or len(self.visited) >= self.max_pages:
+        # --- SSRF guard: only fetch URLs on our target host ---------------
+        parsed_url = urlparse(url)
+        if parsed_url.netloc != self.base_netloc:
+            logger.warning("Skipping external URL (SSRF protection): %s", url)
             return
-        self.visited.add(url)
+
+        # --- Atomic dedup & max-pages check --------------------------------
+        # Check *and* add in one step so concurrent workers can't both pass
+        # the ``if url in self.visited`` guard before either calls ``add``.
+        if len(self.visited) >= self.max_pages:
+            return
+        if url in self.visited:
+            return
+        self.visited.add(url)  # Mark visited BEFORE the HTTP request
 
         async with semaphore:
             try:
@@ -232,7 +248,11 @@ class Spider:
                 logger.debug("Request failed for %s: %s", url, exc)
                 return
 
+        # Skip non-HTML responses (images, JSON APIs, etc.)
         content_type = response.headers.get("content-type", "")
+        if "text/html" not in content_type.lower():
+            return
+
         body = response.text
 
         # Extract links and API endpoints
@@ -246,14 +266,9 @@ class Spider:
             parsed = urlparse(link)
             if parsed.netloc == self.base_netloc:
                 self.discovered_links.add(link)
-                # Only enqueue HTML-like pages for further crawling
+                # Only enqueue for further crawling within depth limit
                 if depth < self.max_depth and link not in self.visited:
                     await queue.put((link, depth + 1))
-
-        # Also treat the current URL path as a discovered endpoint
-        parsed_current = urlparse(url)
-        if parsed_current.path and parsed_current.path != "/":
-            self.discovered_endpoints.add(parsed_current.path)
 
     # ------------------------------------------------------------------
     # Utility: convert discoveries to endpoint dicts for AttackPlanner
