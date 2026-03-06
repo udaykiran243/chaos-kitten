@@ -368,6 +368,11 @@
             background: rgba(15, 23, 42, 0.7);
         }
 
+        .sev-info {
+            color: #7390f9;
+            font-weight: 600;
+        }
+
         .sev-critical {
             color: #f97373;
             font-weight: 600;
@@ -601,7 +606,7 @@ agent:
                         <div class="step-card">
                             <div class="step-label">step 3</div>
                             <div class="step-title">Set API key</div>
-                            <pre><code>ANTHROPIC_API_KEY=your_key_here</code></pre>
+                            <pre><code>export ANTHROPIC_API_KEY=your_key_here</code></pre>
                         </div>
 
                         <div class="step-card">
@@ -692,6 +697,11 @@ chaos-kitten scan --chaos --chaos-level 5 --target http://localhost:5000</code><
                             </tr>
                         </thead>
                         <tbody>
+                            <tr>
+                                <td class="sev-info">INFO</td>
+                                <td>🔵</td>
+                                <td>Informational finding / context signal</td>
+                            </tr>
                             <tr>
                                 <td class="sev-critical">CRITICAL</td>
                                 <td>🔴</td>
