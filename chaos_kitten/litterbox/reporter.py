@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound, TemplateError
 from chaos_kitten.litterbox.themes import get_theme
+from chaos_kitten import __version__
 
 HTML = None
 try:
@@ -434,7 +435,7 @@ class Reporter:
                 context = {
                     "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "target_url": target,
-                    "version": "0.1.0",  # TODO: Get from package metadata
+                    "version": __version__,
                     "endpoints_tested": summary["endpoints_tested"],
                     "total_vulns": summary["total_vulnerabilities"],
                     "critical_count": summary["severity_breakdown"]["critical"],
@@ -492,7 +493,7 @@ class Reporter:
                 context = {
                     "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "target_url": target,
-                    "version": "0.1.0",  # TODO: Get from package metadata
+                    "version": __version__,
                     "endpoints_tested": summary["endpoints_tested"],
                     "total_vulns": summary["total_vulnerabilities"],
                     "critical_count": summary["severity_breakdown"]["critical"],
@@ -543,7 +544,7 @@ class Reporter:
                     "metadata": {
                         "generated_at": datetime.now().isoformat(),
                         "target_url": target,
-                        "tool_version": "0.1.0",
+                        "tool_version": __version__,
                         "report_format": "json",
                     },
                     "executive_summary": summary,
@@ -631,7 +632,7 @@ class Reporter:
                             "tool": {
                                 "driver": {
                                     "name": "chaos-kitten",
-                                    "version": "0.1.0",
+                                    "version": __version__,
                                     "rules": rules,
                                 }
                             },
