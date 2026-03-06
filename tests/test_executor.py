@@ -4,6 +4,8 @@ import httpx
 import time
 import asyncio
 import unittest.mock
+from datetime import datetime, timezone, timedelta
+from email.utils import format_datetime
 from chaos_kitten.paws.executor import Executor
 
 # --- Fixtures ---
@@ -447,4 +449,105 @@ async def test_logging_includes_response_time(base_url, caplog):
             # Check that response time is logged
             log_messages = [record.message for record in caplog.records]
             assert any("Time:" in msg and "ms" in msg for msg in log_messages)
+
+
+# --- Retry-After Header Tests ---
+
+@pytest.mark.asyncio
+async def test_retry_after_integer_seconds(base_url):
+    """Test Retry-After header with integer seconds."""
+    async with Executor(base_url=base_url, base_backoff=5) as executor:
+        async with respx.mock(base_url=base_url) as mock:
+            # Mock 429 response with Retry-After: 30
+            mock.get("/users").respond(
+                429, 
+                headers={"Retry-After": "30"},
+                text="Rate limited"
+            )
+            
+            # Mock the successful retry
+            mock.get("/users").respond(200, json={"users": []})
+            
+            # Track the actual wait time by mocking asyncio.sleep
+            with unittest.mock.patch('asyncio.sleep') as mock_sleep:
+                await executor.execute_attack("GET", "/users")
+                
+                # Verify that sleep was called with exactly 30 seconds
+                mock_sleep.assert_called_with(30.0)
+
+@pytest.mark.asyncio
+async def test_retry_after_http_date_format(base_url):
+    """Test Retry-After header with HTTP-date format."""
+    async with Executor(base_url=base_url, base_backoff=5) as executor:
+        async with respx.mock(base_url=base_url) as mock:
+            # Create a date 120 seconds in the future
+            future_date = datetime.now(timezone.utc) + timedelta(seconds=120)
+            retry_after_date = format_datetime(future_date)
+            
+            # Mock 429 response with Retry-As HTTP-date
+            mock.get("/users").respond(
+                429,
+                headers={"Retry-After": retry_after_date},
+                text="Rate limited"
+            )
+            
+            # Mock the successful retry
+            mock.get("/users").respond(200, json={"users": []})
+            
+            # Track the actual wait time by mocking asyncio.sleep
+            with unittest.mock.patch('asyncio.sleep') as mock_sleep:
+                await executor.execute_attack("GET", "/users")
+                
+                # Verify that sleep was called with approximately 120 seconds
+                # Allow small delta for execution time precision
+                sleep_call = mock_sleep.call_args[0][0]
+                assert 119 <= sleep_call <= 121, f"Expected ~120 seconds, got {sleep_call}"
+
+@pytest.mark.asyncio
+async def test_retry_after_invalid_date_fallback(base_url):
+    """Test Retry-After header with invalid date falls back to base_backoff."""
+    async with Executor(base_url=base_url, base_backoff=10) as executor:
+        async with respx.mock(base_url=base_url) as mock:
+            # Mock 429 response with invalid Retry-After
+            mock.get("/users").respond(
+                429,
+                headers={"Retry-After": "totally_invalid_date"},
+                text="Rate limited"
+            )
+            
+            # Mock the successful retry
+            mock.get("/users").respond(200, json={"users": []})
+            
+            # Track the actual wait time by mocking asyncio.sleep
+            with unittest.mock.patch('asyncio.sleep') as mock_sleep:
+                await executor.execute_attack("GET", "/users")
+                
+                # Verify that sleep was called with base_backoff (10 seconds)
+                mock_sleep.assert_called_with(10)
+
+@pytest.mark.asyncio
+async def test_retry_after_past_date_fallback_to_zero(base_url):
+    """Test Retry-After header with past date falls back to zero wait time."""
+    async with Executor(base_url=base_url, base_backoff=5) as executor:
+        async with respx.mock(base_url=base_url) as mock:
+            # Create a date in the past (10 seconds ago)
+            past_date = datetime.now(timezone.utc) - timedelta(seconds=10)
+            retry_after_date = format_datetime(past_date)
+            
+            # Mock 429 response with past Retry-After date
+            mock.get("/users").respond(
+                429,
+                headers={"Retry-After": retry_after_date},
+                text="Rate limited"
+            )
+            
+            # Mock the successful retry
+            mock.get("/users").respond(200, json={"users": []})
+            
+            # Track the actual wait time by mocking asyncio.sleep
+            with unittest.mock.patch('asyncio.sleep') as mock_sleep:
+                await executor.execute_attack("GET", "/users")
+                
+                # Verify that sleep was called with 0 (max(0, negative_delta))
+                mock_sleep.assert_called_with(0)
 

@@ -5,7 +5,8 @@ import logging
 import re
 import time
 import random
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional, Union
 import httpx
 import urllib.parse
@@ -338,8 +339,14 @@ class Executor:
                 try:
                     wait_time = float(header_val)
                 except ValueError:
-                    # Todo: Handle date format if needed
-                    wait_time = self.base_backoff
+                    # Try to parse as HTTP-date format (RFC 1123)
+                    try:
+                        parsed_date = parsedate_to_datetime(header_val)
+                        delta = (parsed_date - datetime.now(timezone.utc)).total_seconds()
+                        wait_time = max(0, delta)
+                    except (TypeError, ValueError):
+                        # Fallback to default backoff if date parsing fails
+                        wait_time = self.base_backoff
 
                 logger.info(f"Rate limited. Waiting {wait_time}s as per Retry-After header.")
                 await asyncio.sleep(wait_time)
