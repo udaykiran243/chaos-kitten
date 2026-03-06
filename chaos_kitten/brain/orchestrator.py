@@ -164,6 +164,37 @@ async def plan_attacks(state: AgentState, app_config: Dict[str, Any]) -> Dict[st
                         "requestBody": details.get("requestBody"),
                     })
 
+        # ── Dynamic API Discovery (Spidering) ──────────────────
+        spider_cfg = app_config.get("spider", {})
+        if spider_cfg.get("enabled", False):
+            try:
+                from chaos_kitten.brain.spider import Spider
+
+                target_url = app_config.get("target", {}).get("base_url", "")
+                spider = Spider(
+                    base_url=target_url,
+                    max_depth=spider_cfg.get("max_depth", 3),
+                    max_pages=spider_cfg.get("max_pages", 100),
+                    concurrency=spider_cfg.get("concurrency", 5),
+                    timeout=spider_cfg.get("timeout", 10.0),
+                )
+                console.print("[bold cyan]🕷️  Spidering target for hidden endpoints...[/bold cyan]")
+                spider_results = await spider.crawl()
+                spidered = spider.to_endpoint_dicts()
+
+                # Merge: only add paths not already covered by the spec
+                existing_paths = {ep["path"] for ep in endpoints}
+                new_endpoints = [ep for ep in spidered if ep["path"] not in existing_paths]
+                endpoints.extend(new_endpoints)
+
+                if new_endpoints:
+                    console.print(
+                        f"[green]🕷️  Spider discovered {len(new_endpoints)} new endpoint(s) "
+                        f"(visited {spider_results['pages_visited']} pages)[/green]"
+                    )
+            except Exception as spider_err:
+                logger.warning("Spider phase failed: %s", spider_err)
+
         if not endpoints:
             console.print("[yellow]⚠️ No endpoints found to plan attacks against.[/yellow]")
             return {"planned_attacks": []}
