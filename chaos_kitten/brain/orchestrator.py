@@ -207,7 +207,7 @@ def _interactive_prompt(attack: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if action == "m":
         # Modify logic
         console.print("[cyan]Enter new payload (JSON format):[/cyan]")
-        new_payload_str = Prompt.ask("", default=json.dumps(payload) if payload else "{}")
+        new_payload_str = Prompt.ask("", default=json.dumps(payload) if payload is not None else "{}")
         try:
             new_payload = json.loads(new_payload_str)
             attack_copy = attack.copy()
@@ -250,7 +250,7 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
             # Interactive Mode
             if app_config.get("execution", {}).get("interactive", False):
                 attack = _interactive_prompt(attack)
-                if not attack:
+                if attack is None:
                     continue
 
             # Check for concurrency attack
@@ -262,15 +262,16 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                     count = 5
                 console.print(f"[bold cyan]⚡ Launching concurrent attack ({count} requests) on {attack.get('path')}...[/bold cyan]")
                 
-                base_payload = {
-                    "method": attack.get("method", "GET"),
-                    "url": f"{base_url}{attack.get('path', '/')}",
-                    "headers": attack.get("headers", {}),
-                    "body": attack.get("body") or attack.get("payload"),
-                }
-                
                 # Execute requests concurrently
-                tasks = [executor.execute(base_payload) for _ in range(count)]
+                tasks = [
+                    executor.execute_attack(
+                        method=attack.get("method", "GET"),
+                        path=attack.get("path", "/"),
+                        payload=attack.get("body") or attack.get("payload"),
+                        headers=attack.get("headers", {})
+                    )
+                    for _ in range(count)
+                ]
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
                 
                 # Custom analysis for race conditions
@@ -301,13 +302,12 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                 
                 step_results = []
                 for step in workflow_steps:
-                    step_payload = {
-                        "method": step.get("method", "GET"),
-                        "url": f"{base_url}{step.get('path', '/')}",
-                        "headers": step.get("headers", {}) or attack.get("headers", {}), # Inherit headers
-                        "body": step.get("body") or step.get("payload"),
-                    }
-                    response = await executor.execute(step_payload)
+                    response = await executor.execute_attack(
+                        method=step.get("method", "GET"),
+                        path=step.get("path", "/"),
+                        payload=step.get("body") or step.get("payload"),
+                        headers=step.get("headers", {}) or attack.get("headers", {}),
+                    )
                     step_results.append(response)
                     
                     if not (200 <= response.get("status_code", 500) < 300):
