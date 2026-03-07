@@ -273,7 +273,7 @@ class PoCGenerator:
                 import httpx
 
                 TARGET_URL = "{safe_url}"
-                PAYLOAD = {json.dumps(payload)}
+                PAYLOAD = {payload!r}
                 CONCURRENCY = 10
 
                 async def send_request(client, idx):
@@ -301,7 +301,7 @@ class PoCGenerator:
                     if len(successes) > 1:
                         print("[!] Multiple successes detected - vulnerability likely exploitable.")
                     else:
-                        print("[-] Could not reproduce race condition with {{CONCURRENCY}} requests.")
+                        print(f"[-] Could not reproduce race condition with {{CONCURRENCY}} requests.")
 
                 if __name__ == "__main__":
                     asyncio.run(main())
@@ -327,7 +327,7 @@ class PoCGenerator:
             import httpx
 
             TARGET_URL = "{safe_url}"
-            PAYLOAD = {json.dumps(payload)}
+            PAYLOAD = {payload!r}
 
             def main() -> None:
                 print(f"[*] PoC for {safe_vuln}")
