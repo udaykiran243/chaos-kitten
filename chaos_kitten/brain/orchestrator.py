@@ -267,7 +267,7 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                     executor.execute_attack(
                         method=attack.get("method", "GET"),
                         path=attack.get("path", "/"),
-                        payload=attack.get("body") or attack.get("payload"),
+                        payload=attack.get("body") if attack.get("body") is not None else attack.get("payload"),
                         headers=attack.get("headers", {})
                     )
                     for _ in range(count)
@@ -302,10 +302,17 @@ async def execute_and_analyze(state: AgentState, executor: Any, app_config: Dict
                 
                 step_results = []
                 for step in workflow_steps:
+                    # Interactive Mode for Steps
+                    if app_config.get("execution", {}).get("interactive", False):
+                        step = _interactive_prompt(step)
+                        if step is None:
+                            console.print("[yellow]Workflow step skipped by user.[/yellow]")
+                            continue
+
                     response = await executor.execute_attack(
                         method=step.get("method", "GET"),
                         path=step.get("path", "/"),
-                        payload=step.get("body") or step.get("payload"),
+                        payload=step.get("body") if step.get("body") is not None else step.get("payload"),
                         headers=step.get("headers", {}) or attack.get("headers", {}),
                     )
                     step_results.append(response)
