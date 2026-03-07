@@ -384,7 +384,7 @@ class Executor:
 
     def _setup_logging(self) -> None:
         """Setup request/response logging."""
-        self._logger = logging.getLogger(f"{__name__}.traffic")
+        self._logger = logging.getLogger(f"{__name__}.traffic.{id(self)}")
         self._logger.setLevel(logging.INFO)
         
         # Suppress httpx info logs to prevent leaking sensitive data or double logging
