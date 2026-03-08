@@ -46,6 +46,7 @@ class Executor:
         totp_field: str = "code",
         enable_logging: bool = False,
         log_file: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         """Initialize the executor.
         
@@ -61,6 +62,7 @@ class Executor:
             totp_field: JSON field name for TOTP code
             enable_logging: Enable request/response logging
             log_file: Optional file path to save logs
+            client: Optional existing httpx.AsyncClient instance
         
         Raises:
             ValueError: If auth_type is not supported.
@@ -91,7 +93,7 @@ class Executor:
         self.enable_logging: bool = enable_logging
         self.log_file: Optional[str] = log_file
 
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: Optional[httpx.AsyncClient] = client
         self._rate_lock: Optional[asyncio.Lock] = None
         self._last_request_time: float = 0.0
         self.totp_secret: Optional[str] = totp_secret
@@ -103,11 +105,12 @@ class Executor:
     
     async def __aenter__(self) -> "Executor":
         """Context manager entry."""
-        self._client: httpx.AsyncClient = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=self.timeout,
-            headers=self._build_headers(),
-        )
+        if not self._client:
+            self._client: httpx.AsyncClient = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout,
+                headers=self._build_headers(),
+            )
         
         await self._perform_mfa_auth()
         
@@ -160,13 +163,7 @@ class Executor:
             Response data including status, body, and timing
         """
         if not self._client:
-            return {
-                "status_code": 0,
-                "headers": {},
-                "body": "",
-                "elapsed_ms": 0.0,
-                "error": "Client not initialized. Use 'async with Executor(...)' pattern.",
-            }
+            raise RuntimeError("Executor not initialized. Use 'async with Executor(...)' pattern to properly initialize the HTTP client.")
         
         method: str = method.upper()
         
