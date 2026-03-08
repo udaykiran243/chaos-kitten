@@ -479,7 +479,7 @@ export default function Docs() {
                 </div>
                 <h1 className="hero-title">
                     Unleash <span className="accent">Chaos</span> on your
-                    <br / />API onboarding.
+                    <br />API onboarding.
                 </h1>
                 <p className="hero-subtitle">
                     Spin up Chaos Kitten locally or in CI, wire it to your API, and let the agentic
