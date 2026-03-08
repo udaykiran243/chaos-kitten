@@ -1,12 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
+"use client";
 
-<head>
-    <meta charset="UTF-8" />
-    <title>Chaos Kitten – Terms of Service</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-        :root {
+import Link from "next/link";
+import Image from "next/image";
+
+export default function Page() {
+  return (
+    <>
+      <style jsx global>{`
+:root {
             --bg-main: #050712;
             --bg-card: #0c0f1b;
             --bg-card-soft: #111525;
@@ -263,38 +264,36 @@
                 font-size: 1.8rem;
             }
         }
-    </style>
-</head>
-
-<body>
-    <div class="shell">
-        <!-- Top bar with Go Back button -->
-        <div class="top-bar">
-            <button class="back-btn" onclick="window.history.back()">
-                <span class="icon">←</span>
+      `}</style>
+      <div>
+<div className="shell">
+        {/* Top bar with Go Back button */}
+        <div className="top-bar">
+            <button className="back-btn" onClick={() => window.history.back()}>
+                <span className="icon">←</span>
                 <span>Go back</span>
             </button>
         </div>
 
-        <!-- Header -->
-        <header class="page-header">
-            <div class="page-badge">⚖️ Legal Agreement</div>
-            <h1 class="page-title">Terms of Service</h1>
-            <p class="page-subtitle">
+        {/* Header */}
+        <header className="page-header">
+            <div className="page-badge">⚖️ Legal Agreement</div>
+            <h1 className="page-title">Terms of Service</h1>
+            <p className="page-subtitle">
                 Legal terms for using Chaos Kitten, the open-source API security scanner
             </p>
-            <span class="last-updated">Effective: March 4, 2026</span>
+            <span className="last-updated">Effective: March 4, 2026</span>
         </header>
 
-        <!-- Main content -->
-        <div class="content-panel">
-            <!-- Acceptance of Terms -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">📜</span>
+        {/* Main content */}
+        <div className="content-panel">
+            {/* Acceptance of Terms */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">📜</span>
                     1. Acceptance of Terms
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         By downloading, installing, or using Chaos Kitten (the "Software"), you agree to be bound by
                         these Terms of Service ("Terms"). If you do not agree, do not use the Software.
@@ -306,13 +305,13 @@
                 </div>
             </div>
 
-            <!-- License Grant -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">📄</span>
+            {/* License Grant */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">📄</span>
                     2. License Grant
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         Chaos Kitten is provided under the <strong>MIT License</strong>. You are granted a worldwide,
                         non-exclusive, royalty-free license to:
@@ -330,13 +329,13 @@
                 </div>
             </div>
 
-            <!-- Authorized Use -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">✅</span>
+            {/* Authorized Use */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">✅</span>
                     3. Authorized Use
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         You may use Chaos Kitten to test APIs that you:
                     </p>
@@ -345,7 +344,7 @@
                         <li>Have explicit written permission to test</li>
                         <li>Are contractually authorized to perform security assessments on</li>
                     </ul>
-                    <div class="highlight-box">
+                    <div className="highlight-box">
                         <p>
                             <strong>✓ Examples of authorized use:</strong> Testing your company's staging API,
                             pentesting with client authorization, bug bounty programs with explicit scope.
@@ -354,13 +353,13 @@
                 </div>
             </div>
 
-            <!-- Prohibited Use -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">🚫</span>
+            {/* Prohibited Use */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">🚫</span>
                     4. Prohibited Use
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         You <strong>MAY NOT</strong> use Chaos Kitten to:
                     </p>
@@ -373,7 +372,7 @@
                         <li>Use in malware, ransomware, or other malicious software</li>
                     </ul>
 
-                    <div class="danger-box">
+                    <div className="danger-box">
                         <p>
                             <strong>⚠️ Legal Risk:</strong> Unauthorized security testing is illegal in most
                             jurisdictions and may result in criminal prosecution.
@@ -382,13 +381,13 @@
                 </div>
             </div>
 
-            <!-- No Warranty -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">⚠️</span>
+            {/* No Warranty */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">⚠️</span>
                     5. No Warranty
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         Chaos Kitten is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, either
                         express or implied, including but not limited to:
@@ -406,13 +405,13 @@
                 </div>
             </div>
 
-            <!-- Limitation of Liability -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">🛡️</span>
+            {/* Limitation of Liability */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">🛡️</span>
                     6. Limitation of Liability
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         To the maximum extent permitted by law, the Chaos Kitten project maintainers, contributors, and
                         affiliates shall not be liable for:
@@ -431,13 +430,13 @@
                 </div>
             </div>
 
-            <!-- Third-Party Services -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">🔗</span>
+            {/* Third-Party Services */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">🔗</span>
                     7. Third-Party Services
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         Chaos Kitten integrates with third-party services including:
                     </p>
@@ -454,13 +453,13 @@
                 </div>
             </div>
 
-            <!-- Contributions -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">🤝</span>
+            {/* Contributions */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">🤝</span>
                     8. Contributions
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         Contributions to Chaos Kitten are welcome under the MIT License. By submitting code, issues, or
                         documentation, you:
@@ -475,13 +474,13 @@
                 </div>
             </div>
 
-            <!-- Intellectual Property -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">©</span>
+            {/* Intellectual Property */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">©</span>
                     9. Intellectual Property
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         "Chaos Kitten" and related trademarks are owned by the project maintainers. You may use the name
                         for attribution but not in a way that implies endorsement or affiliation.
@@ -492,13 +491,13 @@
                 </div>
             </div>
 
-            <!-- Termination -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">⏹️</span>
+            {/* Termination */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">⏹️</span>
                     10. Termination
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         We may suspend or terminate access to Chaos Kitten if you:
                     </p>
@@ -513,13 +512,13 @@
                 </div>
             </div>
 
-            <!-- Governing Law -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">⚖️</span>
+            {/* Governing Law */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">⚖️</span>
                     11. Governing Law
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         These Terms are governed by the laws of India, without regard to conflict of law principles. Any
                         disputes shall be resolved exclusively in the courts of Pune, Maharashtra, India.
@@ -527,13 +526,13 @@
                 </div>
             </div>
 
-            <!-- Changes to Terms -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">📝</span>
+            {/* Changes to Terms */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">📝</span>
                     12. Changes to Terms
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         We may update these Terms at any time. Changes will be posted to:
                     </p>
@@ -548,13 +547,13 @@
                 </div>
             </div>
 
-            <!-- Contact -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">📧</span>
+            {/* Contact */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">📧</span>
                     13. Contact Information
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         Questions about these Terms? Contact:
                     </p>
@@ -571,18 +570,18 @@
                 </div>
             </div>
 
-            <!-- Acknowledgment -->
-            <div class="section">
-                <h2 class="section-title">
-                    <span class="icon">✍️</span>
+            {/* Acknowledgment */}
+            <div className="section">
+                <h2 className="section-title">
+                    <span className="icon">✍️</span>
                     14. Acknowledgment
                 </h2>
-                <div class="section-content">
+                <div className="section-content">
                     <p>
                         By using Chaos Kitten, you acknowledge that you have read, understood, and agree to be bound by
                         these Terms of Service.
                     </p>
-                    <div class="highlight-box">
+                    <div className="highlight-box">
                         <p>
                             <strong>⚡ Quick Summary:</strong> Use responsibly, get authorization for testing, no
                             warranties, MIT License, don't break the law.
@@ -592,6 +591,7 @@
             </div>
         </div>
     </div>
-</body>
-
-</html>
+      </div>
+    </>
+  );
+}
