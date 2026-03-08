@@ -110,14 +110,15 @@ class OpenAPIParser:
                 
             return self.spec
 
-        except (ValueError, KeyError) as e:
-            # Re-raise known errors with context
-            logger.error(f"Invalid OpenAPI spec: {e}")
-            raise ChaosKittenParsingError(f"Invalid OpenAPI spec: {e}") from e
-        except Exception as e:
-            # Catch-all for parsing library errors (e.g. prance validation errors)
-            logger.error(f"Failed to parse OpenAPI spec: {e}")
-            raise ChaosKittenParsingError(f"Failed to parse OpenAPI spec: {e}") from e
+        except yaml.YAMLError as e:
+            logger.error("Malformed YAML syntax in OpenAPI spec.")
+            raise ChaosKittenParsingError(f"Invalid YAML syntax: {e}") from e
+        except (ValidationError, ParseError) as e:
+            logger.error("OpenAPI schema validation failed.")
+            raise ChaosKittenParsingError(f"OpenAPI schema validation failed: {e}") from e
+        except (ValueError, TypeError) as e:
+            logger.error("Data type or value error during OpenAPI parsing.")
+            raise ChaosKittenParsingError(f"Invalid data encountered during parsing: {e}") from e
 
     def _parse_openapi_3x(self) -> None:
         """Extract endpoints from OpenAPI 3.x paths."""
