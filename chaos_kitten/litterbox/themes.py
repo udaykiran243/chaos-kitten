@@ -127,7 +127,7 @@ def get_theme(
         return copy.deepcopy(DEFAULT_THEME)
 
     # Use the named base if provided, otherwise default
-    base_name: str = theme_config.get("name", "dark")
+    base_name: str = theme_config.get("name") or "dark"
     base: Dict[str, Any] = copy.deepcopy(_PRESETS.get(base_name, DEFAULT_THEME))
 
     # Merge top-level scalar keys

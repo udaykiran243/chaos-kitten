@@ -1,7 +1,7 @@
 """Security Report Generator."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, Mapping, TextIO
+from typing import Any, Dict, List, Optional, Union, Mapping, TextIO, Set
 from datetime import datetime
 import json
 import logging
@@ -11,12 +11,12 @@ from jinja2 import Environment, FileSystemLoader, TemplateNotFound, TemplateErro
 from chaos_kitten.litterbox.themes import get_theme
 from chaos_kitten import __version__
 
-HTML = None
 try:
     from weasyprint import HTML
     WEASYPRINT_AVAILABLE = True
 except ImportError:
     WEASYPRINT_AVAILABLE = False
+    HTML = None
 
 logger = logging.getLogger(__name__)
 
@@ -84,25 +84,28 @@ class Reporter:
         formats: List[str] = [f.strip() for f in self.output_format.split(",")]
         last_output_file: Optional[Path] = None
         valid_formats: Set[str] = {"html", "pdf", "markdown", "json", "sarif", "junit"}
+        
         for fmt in formats:
             if fmt not in valid_formats:
                 raise ValueError(f"Unknown format: '{fmt}'. Supported formats: {', '.join(sorted(valid_formats))}")
+            
             # Generate filename
+            report_filename: str
             # CI/CD Compatibility: If sarif, use standard names
             if fmt == "sarif":
-                filename: str = "results.sarif"
+                report_filename = "results.sarif"
             elif fmt == "junit":
-                filename: str = "results.xml"
+                report_filename = "results.xml"
             else:
                 timestamp: str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                filename: str = f"chaos-kitten-{timestamp}.{self._get_extension(fmt)}"
+                report_filename = f"chaos-kitten-{timestamp}.{self._get_extension(fmt)}"
 
-            output_file: Path = self.output_path / filename
+            output_file: Path = self.output_path / report_filename
 
             # Generate report based on format
             if fmt == "html":
-                content: str = self._generate_html(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                html_content = self._generate_html(scan_results, target_url)
+                output_file.write_text(html_content, encoding="utf-8")
             elif fmt == "pdf":
                 if not WEASYPRINT_AVAILABLE:
                     logger.warning(
@@ -110,28 +113,28 @@ class Reporter:
                         "Install with: pip install chaos-kitten[pdf] or pip install weasyprint"
                     )
                     continue
-                content: str = self._generate_html(scan_results, target_url)
-                self._generate_pdf(content, output_file)
+                html_content = self._generate_html(scan_results, target_url)
+                self._generate_pdf(html_content, output_file)
             elif fmt == "markdown":
-                content: str = self._generate_markdown(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                markdown_content = self._generate_markdown(scan_results, target_url)
+                output_file.write_text(markdown_content, encoding="utf-8")
             elif fmt == "sarif":
                 # Recalculate summary to get flat counts
                 try:
-                    vulns: List[Dict[str, Any]] = self._validate_vulnerability_data(scan_results)
+                    vulns = self._validate_vulnerability_data(scan_results)
                 except Exception:
                     # Fallback if validation fails or already validated
                     vulns = scan_results.get("vulnerabilities", [])
                 
                 # Pass validated vulns to sarif generator to avoid double validation
-                content: str = self._generate_sarif_from_vulns(vulns, target_url)
+                sarif_content = self._generate_sarif_from_vulns(vulns, target_url)
                 
                 # Also generate minimal results.json for the CI script
                 # The CI script expects report.critical, report.high etc.
-                summary: Dict[str, Any] = self._calculate_executive_summary(vulns)
-                counts: Dict[str, int] = summary["severity_breakdown"]
+                summary = self._calculate_executive_summary(vulns)
+                counts = summary["severity_breakdown"]
 
-                ci_json: Dict[str, Any] = {
+                ci_json = {
                     "critical": counts["critical"],
                     "high": counts["high"],
                     "medium": counts["medium"],
@@ -142,14 +145,14 @@ class Reporter:
                 (self.output_path / "results.json").write_text(
                     json.dumps(ci_json, indent=2), encoding="utf-8"
                 )
-                output_file.write_text(content, encoding="utf-8")
+                output_file.write_text(sarif_content, encoding="utf-8")
 
             elif fmt == "junit":
-                content: str = self._generate_junit(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                junit_content = self._generate_junit(scan_results, target_url)
+                output_file.write_text(junit_content, encoding="utf-8")
             else:
-                content: str = self._generate_json(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                json_content = self._generate_json(scan_results, target_url)
+                output_file.write_text(json_content, encoding="utf-8")
 
             last_output_file = output_file
 
@@ -160,7 +163,7 @@ class Reporter:
 
     def _get_extension(self, fmt: Optional[str] = None) -> str:
         """Get file extension for the output format."""
-        fmt: str = fmt or self.output_format
+        format_name: str = fmt or self.output_format
         extensions: Dict[str, str] = {
             "html": "html",
             "pdf": "pdf",
@@ -169,7 +172,7 @@ class Reporter:
             "sarif": "sarif",
             "junit": "xml",
         }
-        return extensions.get(fmt, "txt")
+        return extensions.get(format_name, "txt")
 
     def _setup_template_engine(self) -> None:
         """Set up Jinja2 template engine with proper error handling."""
@@ -445,7 +448,7 @@ class Reporter:
 
                 # Load and render template
                 template = self._load_template("report.html")
-                return template.render(**context)
+                return str(template.render(**context))
 
             except (ValueError, TypeError) as e:
                 raise ValueError(f"Invalid vulnerability data: {e}") from e
@@ -511,7 +514,7 @@ class Reporter:
 
                 # Load and render template
                 template = self._load_template("report.md")
-                return template.render(**context)
+                return str(template.render(**context))
 
             except (ValueError, TypeError) as e:
                 raise ValueError(f"Invalid vulnerability data: {e}") from e
@@ -565,7 +568,7 @@ class Reporter:
                 Generated SARIF report content
             """
             try:
-                rules = []
+                rules: List[Dict[str, Any]] = []
                 sarif_results = []
                 rule_indices = {}
 
