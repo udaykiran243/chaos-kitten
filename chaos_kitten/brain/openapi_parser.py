@@ -33,7 +33,10 @@ Examples:
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+import yaml
+from yaml.error import YAMLError
 from prance import ResolvingParser
+from prance.util.exceptions import ValidationError, ParseError
 from chaos_kitten.exceptions import ChaosKittenParsingError, ChaosKittenError
 
 logger = logging.getLogger(__name__)
