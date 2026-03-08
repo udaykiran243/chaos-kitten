@@ -157,18 +157,28 @@ class OpenAPIParser:
                 # Merge path-level and operation-level parameters
                 # Operation-level params override path-level by (name, in)
                 op_params = operation.get('parameters', [])
-                merged_params = {}
+                merged_params: dict[tuple[str, str], dict[str, Any]] = {}
+                
+                # Add path-level parameters with fallback for missing keys
                 for param in path_params:
-                    key = (param.get('name'), param.get('in'))
+                    name = param.get('name', 'unknown')
+                    in_loc = param.get('in', 'unknown')
+                    key = (name, in_loc)
                     merged_params[key] = param
+                
+                # Add operation-level parameters with fallback for missing keys
                 for param in op_params:
-                    key = (param.get('name'), param.get('in'))
+                    name = param.get('name', 'unknown')
+                    in_loc = param.get('in', 'unknown')
+                    key = (name, in_loc)
                     merged_params[key] = param
-                all_params = list(merged_params.values())
+                
+                # Convert back to list
+                final_params = list(merged_params.values())
 
                 # Normalize parameters
                 consumes = operation.get('consumes', self.spec.get('consumes', []))
-                normalized_params, request_body = self._normalize_parameters(all_params, consumes)
+                normalized_params, request_body = self._normalize_parameters(final_params, consumes)
 
                 # If explicitly defined requestBody (OpenAPI 3), use it
                 if 'requestBody' in operation:
