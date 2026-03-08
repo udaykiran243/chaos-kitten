@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Pattern, Union
 import re
 import logging
+from chaos_kitten.exceptions import ChaosKittenNetworkError, ChaosKittenError
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,8 @@ class ResponseAnalyzer:
             profile_severity: str = attack_profile.get("severity", "medium").lower()
             try:
                 finding.severity = Severity(profile_severity)
-            except ValueError:
+            except ValueError as e:
+                logger.debug(f"Invalid severity '{profile_severity}': {e}")
                 finding.severity = Severity.MEDIUM
                 
             return finding
