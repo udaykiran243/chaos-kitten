@@ -34,7 +34,7 @@ export default function Hero() {
           <div className="terminal-header">
             <span className="dot red"></span>
             <span className="dot yellow"></span>
-            <span class="dot green"></span>
+            <span className="dot green"></span>
             <div className="terminal-title">chaos-kitten-cli</div>
           </div>
           <div className="terminal-body">
