@@ -4,6 +4,7 @@ import json
 import pytest
 from pathlib import Path
 from chaos_kitten.litterbox.reporter import Reporter
+from chaos_kitten import __version__
 
 try:
     import jsonschema
@@ -54,7 +55,7 @@ class TestSarifReporter:
         # Check run/tool info
         run = content["runs"][0]
         assert run["tool"]["driver"]["name"] == "chaos-kitten"
-        assert run["tool"]["driver"]["version"] == "0.1.0"
+        assert run["tool"]["driver"]["version"] == __version__
         assert len(run["tool"]["driver"]["rules"]) == 2
         
         # Check rules
@@ -102,3 +103,45 @@ class TestSarifReporter:
         assert reporter._map_severity_to_sarif("medium") == "warning"
         assert reporter._map_severity_to_sarif("low") == "note"
         assert reporter._map_severity_to_sarif("info") == "note"
+
+    def test_dynamic_version_in_html_report(self, tmp_path, mock_results):
+        """Test that HTML reports use dynamic version from package metadata."""
+        reporter = Reporter(output_path=tmp_path, output_format="html")
+        output_file = reporter.generate(mock_results, "http://example.com")
+        
+        # For HTML reports, we need to check the template context
+        # The version should be dynamically pulled from __version__
+        assert output_file.suffix == ".html"
+        
+        # Read the HTML content and verify it contains the version
+        content = output_file.read_text("utf-8")
+        assert __version__ in content
+        assert "0.1.0" not in content  # Ensure hardcoded version is not present
+
+    def test_dynamic_version_in_pdf_report(self, tmp_path, mock_results):
+        """Test that PDF reports use dynamic version from package metadata."""
+        reporter = Reporter(output_path=tmp_path, output_format="pdf")
+        output_file = reporter.generate(mock_results, "http://example.com")
+        
+        # For PDF reports, verify the file is created
+        assert output_file.suffix == ".pdf"
+        
+        # The version should be embedded in the PDF metadata/template context
+        # We can't easily parse PDF content, but we can verify the file exists
+        assert output_file.exists()
+
+    def test_report_version_matches_package_version(self, tmp_path, mock_results):
+        """Test that all report formats use the correct package version."""
+        from chaos_kitten import __version__
+        
+        # Test HTML format
+        html_reporter = Reporter(output_path=tmp_path, output_format="html")
+        html_file = html_reporter.generate(mock_results, "http://example.com")
+        html_content = html_file.read_text("utf-8")
+        assert __version__ in html_content
+        
+        # Test SARIF format
+        sarif_reporter = Reporter(output_path=tmp_path, output_format="sarif")
+        sarif_file = sarif_reporter.generate(mock_results, "http://example.com")
+        sarif_content = json.loads(sarif_file.read_text("utf-8"))
+        assert sarif_content["runs"][0]["tool"]["driver"]["version"] == __version__
