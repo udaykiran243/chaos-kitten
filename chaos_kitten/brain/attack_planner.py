@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Set
+from typing import Any, Dict, List, Optional, Tuple, Set, Union
 
 import yaml
 # Moving langchain imports to local scope to prevent crashes during pre-flight checks
@@ -79,13 +79,13 @@ class AttackPlanner:
         llm_provider: str = "anthropic",
         temperature: float = 0.7,
     ) -> None:
-        self.endpoints = endpoints
-        self.toys_path = toys_path
+        self.endpoints: List[Dict[str, Any]] = endpoints
+        self.toys_path: str = toys_path
         self.attack_profiles: List[AttackProfile] = []
         self._cache: Dict[str, List[Dict[str, Any]]] = {}
-        self.llm_provider = llm_provider.lower()
-        self.temperature = temperature
-        self.llm = self._init_llm()
+        self.llm_provider: str = llm_provider.lower()
+        self.temperature: float = temperature
+        self.llm: Any = self._init_llm()
         self.load_attack_profiles()
 
     def _init_llm(self) -> Any:
@@ -111,8 +111,8 @@ class AttackPlanner:
 
     def load_attack_profiles(self) -> None:
         """Load all attack profiles from the toys directory."""
-        search_path = os.path.join(self.toys_path, "*.yaml")
-        yaml_files = sorted(glob.glob(search_path))
+        search_path: str = os.path.join(self.toys_path, "*.yaml")
+        yaml_files: List[str] = sorted(glob.glob(search_path))
 
         # Keep this method idempotent when called multiple times.
         self.attack_profiles = []
@@ -125,18 +125,18 @@ class AttackPlanner:
         for file_path in yaml_files:
             try:
                 with open(file_path, encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
+                    data: Optional[Dict[str, Any]] = yaml.safe_load(f)
 
                 if not data:
                     logger.warning("Skipping empty file: %s", file_path)
                     continue
 
-                required_fields = [
+                required_fields: List[str] = [
                     "name",
                     "category",
                     "severity",
                 ]
-                missing = [field_name for field_name in required_fields if field_name not in data]
+                missing: List[str] = [field_name for field_name in required_fields if field_name not in data]
 
                 if missing:
                     logger.warning(
@@ -144,10 +144,10 @@ class AttackPlanner:
                     )
                     continue
 
-                payloads = data.get("payloads") or []
-                target_fields = data.get("target_fields") or []
-                workflow = data.get("workflow") or []
-                concurrency = data.get("concurrency") or {}
+                payloads: List[str] = data.get("payloads") or []
+                target_fields: List[str] = data.get("target_fields") or []
+                workflow: List[Dict[str, Any]] = data.get("workflow") or []
+                concurrency: Dict[str, Any] = data.get("concurrency") or {}
 
                 if not (payloads and target_fields) and not workflow and not concurrency:
                     logger.warning(
@@ -163,7 +163,7 @@ class AttackPlanner:
                     )
                     continue
 
-                profile = AttackProfile(
+                profile: AttackProfile = AttackProfile(
                     name=str(data["name"]),
                     category=str(data["category"]),
                     severity=str(data["severity"]).lower(),
@@ -197,12 +197,12 @@ class AttackPlanner:
         Returns:
             List of planned attack dictionaries
         """
-        path = endpoint.get("path", "")
-        method = endpoint.get("method", "GET")
-        params = endpoint.get("parameters", [])
-        body = endpoint.get("requestBody", {})
+        path: str = endpoint.get("path", "")
+        method: str = endpoint.get("method", "GET")
+        params: List[Dict[str, Any]] = endpoint.get("parameters", [])
+        body: Dict[str, Any] = endpoint.get("requestBody", {})
 
-        cache_key = (
+        cache_key: str = (
             f"{method}:{path}:"
             f"{json.dumps(params, sort_keys=True, default=str)}:"
             f"{json.dumps(body, sort_keys=True, default=str)}"
@@ -215,9 +215,9 @@ class AttackPlanner:
             from langchain_core.prompts import ChatPromptTemplate
             from langchain_core.output_parsers import JsonOutputParser
             
-            prompt = ChatPromptTemplate.from_template(ATTACK_PLANNING_PROMPT)
+            prompt: ChatPromptTemplate = ChatPromptTemplate.from_template(ATTACK_PLANNING_PROMPT)
             chain = prompt | self.llm | JsonOutputParser()
-            generated = chain.invoke(
+            generated: Union[List[Dict[str, Any]], Dict[str, Any], str, int, float, bool, None] = chain.invoke(
                 {
                     "method": method,
                     "path": path,
@@ -258,29 +258,29 @@ class AttackPlanner:
     def _normalize_llm_attacks(
         self, generated_attacks: List[Dict[str, Any]], endpoint: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        method = endpoint.get("method", "GET")
-        path = endpoint.get("path", "")
+        method: str = endpoint.get("method", "GET")
+        path: str = endpoint.get("path", "")
         normalized: List[Dict[str, Any]] = []
 
         for raw_attack in generated_attacks:
             if not isinstance(raw_attack, dict):
                 continue
 
-            target_param = (
+            target_param: Union[str, None] = (
                 raw_attack.get("target_param")
                 or raw_attack.get("field")
                 or raw_attack.get("target")
                 or "q"
             )
-            payload = raw_attack.get("payload")
+            payload: Any = raw_attack.get("payload")
             if payload is None:
                 payloads = raw_attack.get("payloads")
                 if isinstance(payloads, list) and payloads:
-                    payload = {target_param: payloads[0]}
+                    payload = {target_param: payloads[0]}  # type: ignore
                 else:
-                    payload = {target_param: "' OR 1=1 --"}
+                    payload = {target_param: "' OR 1=1 --"}  # type: ignore
             elif isinstance(payload, str):
-                payload = {target_param: payload}
+                payload = {target_param: payload}  # type: ignore
 
             payload_values: List[str]
             raw_payloads = raw_attack.get("payloads")
@@ -289,12 +289,12 @@ class AttackPlanner:
             else:
                 payload_values = [self._payload_preview(payload)]
 
-            severity = str(
+            severity: str = str(
                 raw_attack.get("severity")
                 or self._priority_to_severity(str(raw_attack.get("priority", "medium")))
             ).lower()
 
-            indicators = (
+            indicators: Dict[str, Any] = (
                 raw_attack.get("success_indicators")
                 or raw_attack.get("expected_indicators")
                 or {}
@@ -331,10 +331,10 @@ class AttackPlanner:
         return normalized
 
     def _plan_rule_based(self, endpoint: Dict[str, Any]) -> List[Dict[str, Any]]:
-        method = endpoint.get("method", "GET")
-        path = endpoint.get("path", "")
-        fields = self._extract_endpoint_fields(endpoint)
-        detected_languages = self._detect_serialization_languages(endpoint)
+        method: str = endpoint.get("method", "GET")
+        path: str = endpoint.get("path", "")
+        fields: List[Tuple[str, str]] = self._extract_endpoint_fields(endpoint)
+        detected_languages: Set[str] = self._detect_serialization_languages(endpoint)
 
         attacks: List[Dict[str, Any]] = []
         for profile in self.attack_profiles:
@@ -346,7 +346,7 @@ class AttackPlanner:
             # Special handling for Business Logic / Workflow / Concurrency
             if profile.workflow or profile.concurrency:
                 # Check path match
-                path_match = False
+                path_match: bool = False
                 if profile.target_paths:
                     for tp in profile.target_paths:
                         try:
@@ -359,9 +359,9 @@ class AttackPlanner:
                                 break
                 
                 # Check field match
-                field_match = False
-                matched_field = None
-                matched_location = None
+                field_match: bool = False
+                matched_field: Optional[str] = None
+                matched_location: Optional[str] = None
                 
                 if not path_match and profile.target_fields:
                     for field_name, location in fields:
@@ -375,7 +375,7 @@ class AttackPlanner:
                             break
                 
                 if path_match or field_match:
-                    indicators = profile.success_indicators or {}
+                    indicators: Dict[str, Any] = profile.success_indicators or {}
                     attacks.append({
                         "type": profile.category,
                         "name": profile.name,
@@ -479,10 +479,10 @@ class AttackPlanner:
         return unique_attacks
 
     def _detect_serialization_languages(self, endpoint: Dict[str, Any]) -> Set[str]:
-        languages = set()
+        languages: Set[str] = set()
         
         # Check overall path for language extensions
-        path = str(endpoint.get("path", "")).lower()
+        path: str = str(endpoint.get("path", "")).lower()
         if path.endswith(".php"):
             languages.add("php")
         elif path.endswith(".jsp") or path.endswith(".do") or path.endswith(".action"):
@@ -493,23 +493,24 @@ class AttackPlanner:
             languages.add("ruby")
 
         # Check Content-Type headers in requestBody
-        request_body = endpoint.get("requestBody") or {}
-        content = request_body.get("content", {})
-        for content_type, _ in content.items():
-            ct_lower = content_type.lower()
-            if "java-serialized" in ct_lower:
-                languages.add("java")
-            elif "python-pickle" in ct_lower or "x-python" in ct_lower:
-                languages.add("python")
-            elif "php-serialized" in ct_lower or "x-php" in ct_lower:
-                languages.add("php")
-            elif "ruby-marshal" in ct_lower or "x-ruby" in ct_lower:
-                languages.add("ruby")
+        request_body: Optional[Dict[str, Any]] = endpoint.get("requestBody")
+        if request_body:
+            content: Dict[str, Any] = request_body.get("content", {})
+            for content_type, _ in content.items():
+                ct_lower: str = content_type.lower()
+                if "java-serialized" in ct_lower:
+                    languages.add("java")
+                elif "python-pickle" in ct_lower or "x-python" in ct_lower:
+                    languages.add("python")
+                elif "php-serialized" in ct_lower or "x-php" in ct_lower:
+                    languages.add("php")
+                elif "ruby-marshal" in ct_lower or "x-ruby" in ct_lower:
+                    languages.add("ruby")
                 
         # Check specific parameter names indicating serialization
         for param in endpoint.get("parameters", []):
             if isinstance(param, dict):
-                name = str(param.get("name", "")).lower()
+                name: str = str(param.get("name", "")).lower()
                 if "java" in name and ("obj" in name or "serial" in name):
                     languages.add("java")
                 if "pickle" in name:
@@ -527,21 +528,22 @@ class AttackPlanner:
         for param in endpoint.get("parameters", []):
             if not isinstance(param, dict):
                 continue
-            name = param.get("name")
+            name: Optional[str] = param.get("name")
             if not name:
                 continue
-            location = str(param.get("in", "query")).lower()
+            location: str = str(param.get("in", "query")).lower()
             fields.append((str(name), location))
 
-        request_body = endpoint.get("requestBody") or {}
-        content = request_body.get("content", {})
-        for content_type, media_type in content.items():
-            schema = media_type.get("schema", {})
-            properties = schema.get("properties", {})
-            for prop_name, prop_details in properties.items():
-                p_type = prop_details.get("type", "string")
-                # Removed broken logic that tried to use targetable_fields before definition
-                fields.append((str(prop_name), "body"))
+        request_body: Optional[Dict[str, Any]] = endpoint.get("requestBody")
+        if request_body:
+            content: Dict[str, Any] = request_body.get("content", {})
+            for content_type, media_type in content.items():
+                schema: Dict[str, Any] = media_type.get("schema", {})
+                properties: Dict[str, Any] = schema.get("properties", {})
+                for prop_name, prop_details in properties.items():
+                    p_type: str = prop_details.get("type", "string")
+                    # Removed broken logic that tried to use targetable_fields before definition
+                    fields.append((str(prop_name), "body"))
 
         if not fields:
             fields.append(("q", "query"))
@@ -549,7 +551,7 @@ class AttackPlanner:
         deduped: List[Tuple[str, str]] = []
         seen_fields: set[Tuple[str, str]] = set()
         for field_name, location in fields:
-            key = (field_name, location)
+            key: Tuple[str, str] = (field_name, location)
             if key not in seen_fields:
                 seen_fields.add(key)
                 deduped.append(key)
@@ -557,8 +559,8 @@ class AttackPlanner:
         return deduped
 
     def _field_matches_target(self, field_name: str, target_field: str) -> bool:
-        field_norm = self._normalize_name(field_name)
-        target_norm = self._normalize_name(target_field)
+        field_norm: str = self._normalize_name(field_name)
+        target_norm: str = self._normalize_name(target_field)
 
         if not field_norm or not target_norm:
             return False
@@ -569,14 +571,14 @@ class AttackPlanner:
         if target_norm in field_norm or field_norm in target_norm:
             return True
 
-        field_tokens = set(token for token in field_norm.split("_") if token)
-        target_tokens = set(token for token in target_norm.split("_") if token)
+        field_tokens: Set[str] = set(token for token in field_norm.split("_") if token)
+        target_tokens: Set[str] = set(token for token in target_norm.split("_") if token)
         if field_tokens.intersection(target_tokens):
             return True
 
         for field_token in field_tokens:
             for target_token in target_tokens:
-                min_len = min(len(field_token), len(target_token))
+                min_len: int = min(len(field_token), len(target_token))
                 if min_len < 2:
                     continue
                 if field_token.endswith(target_token) or target_token.endswith(field_token):
@@ -585,7 +587,7 @@ class AttackPlanner:
         return False
 
     def _normalize_name(self, value: str) -> str:
-        normalized = re.sub(r"[^a-z0-9]+", "_", value.strip().lower())
+        normalized: str = re.sub(r"[^a-z0-9]+", "_", value.strip().lower())
         normalized = re.sub(r"_+", "_", normalized).strip("_")
         return normalized
 
@@ -595,7 +597,7 @@ class AttackPlanner:
         return {field_name: payload}
 
     def _expected_status(self, indicators: Dict[str, Any]) -> int:
-        status_codes = indicators.get("status_codes") if isinstance(indicators, dict) else None
+        status_codes: Optional[Any] = indicators.get("status_codes") if isinstance(indicators, dict) else None
         if isinstance(status_codes, list):
             for status_code in status_codes:
                 try:
@@ -605,18 +607,18 @@ class AttackPlanner:
         return 500
 
     def _severity_rank(self, severity: str) -> int:
-        order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        order: Dict[str, int] = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         return order.get(str(severity).lower(), 4)
 
     def _attack_sort_key(self, attack: Dict[str, Any]) -> Tuple[int, str]:
-        severity = str(
+        severity: str = str(
             attack.get("severity")
             or self._priority_to_severity(str(attack.get("priority", "medium")))
         ).lower()
         return (self._severity_rank(severity), str(attack.get("profile_name", "")))
 
     def _severity_to_priority(self, severity: str) -> str:
-        severity = str(severity).lower()
+        severity: str = str(severity).lower()
         if severity in {"critical", "high"}:
             return "high"
         if severity == "low":
@@ -624,7 +626,7 @@ class AttackPlanner:
         return "medium"
 
     def _priority_to_severity(self, priority: str) -> str:
-        priority = str(priority).lower()
+        priority: str = str(priority).lower()
         if priority == "high":
             return "high"
         if priority == "low":
@@ -633,7 +635,7 @@ class AttackPlanner:
 
     def _payload_preview(self, payload: Any) -> str:
         if isinstance(payload, dict) and len(payload) == 1:
-            only_value = next(iter(payload.values()))
+            only_value: Any = next(iter(payload.values()))
             return str(only_value)
         return str(payload)
 
@@ -642,11 +644,11 @@ class AttackPlanner:
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import JsonOutputParser
         
-        prompt = ChatPromptTemplate.from_template(PAYLOAD_SUGGESTION_PROMPT)
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_template(PAYLOAD_SUGGESTION_PROMPT)
         chain = prompt | self.llm | JsonOutputParser()
 
         try:
-            payloads = chain.invoke({"attack_type": attack_type, "context": json.dumps(context)})
+            payloads: Union[List[str], Dict[str, Any], str, int, float, bool, None] = chain.invoke({"attack_type": attack_type, "context": json.dumps(context)})
             if isinstance(payloads, list):
                 return [str(payload) for payload in payloads]
         except Exception as exc:
@@ -658,11 +660,11 @@ class AttackPlanner:
         """Use LLM to reason about potential vulnerabilities for a field."""
         from langchain_core.prompts import ChatPromptTemplate
         
-        prompt = ChatPromptTemplate.from_template(REASONING_PROMPT)
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_template(REASONING_PROMPT)
         chain = prompt | self.llm
 
         try:
-            response = chain.invoke({"field_name": field_name, "field_type": field_type})
+            response: Any = chain.invoke({"field_name": field_name, "field_type": field_type})
             return str(response.content)
         except Exception as exc:
             logger.warning("LLM field reasoning failed: %s", exc)
@@ -721,30 +723,30 @@ Remember: respond only with valid JSON matching the schema above. Do not include
 class NaturalLanguagePlanner:
     """Plans attacks based on natural language goals."""
 
-    def __init__(self, endpoints: List[Dict[str, Any]], config: Dict[str, Any]):
+    def __init__(self, endpoints: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
         """Initialize the NL planner.
 
         Args:
             endpoints: List of all available API endpoints
             config: Application configuration with LLM settings
         """
-        self.endpoints = endpoints
-        self.config = config
-        self.llm = self._init_llm()
+        self.endpoints: List[Dict[str, Any]] = endpoints
+        self.config: Dict[str, Any] = config
+        self.llm: Any = self._init_llm()
 
-    def _init_llm(self):
+    def _init_llm(self) -> Any:
         """Initialize the LLM based on config."""
-        agent_config = self.config.get("agent", {})
-        provider = agent_config.get("llm_provider", "anthropic").lower()
-        temperature = agent_config.get("temperature", 0.7)
+        agent_config: Dict[str, Any] = self.config.get("agent", {})
+        provider: str = agent_config.get("llm_provider", "anthropic").lower()
+        temperature: float = agent_config.get("temperature", 0.7)
         
         # Provider-specific default models
-        default_models = {
+        default_models: Dict[str, str] = {
             "openai": "gpt-4o",
             "anthropic": "claude-3-5-sonnet-20241022",
             "ollama": "llama3",
         }
-        model = agent_config.get("model", default_models.get(provider, "claude-3-5-sonnet-20241022"))
+        model: str = agent_config.get("model", default_models.get(provider, "claude-3-5-sonnet-20241022"))
 
         if provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
@@ -774,10 +776,10 @@ class NaturalLanguagePlanner:
                 - reasoning: LLM's reasoning (for logging)
         """
         # Load available attack profiles
-        attack_profiles = self._load_available_profiles()
+        attack_profiles: List[str] = self._load_available_profiles()
 
         # Format endpoints for LLM
-        endpoints_str = json.dumps(
+        endpoints_str: str = json.dumps(
             [
                 {
                     "method": ep.get("method", "GET"),
@@ -790,19 +792,19 @@ class NaturalLanguagePlanner:
             indent=2
         )
 
-        profiles_str = json.dumps(attack_profiles, indent=2)
+        profiles_str: str = json.dumps(attack_profiles, indent=2)
 
         # Create prompt
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import JsonOutputParser
         
-        prompt = ChatPromptTemplate.from_template(NATURAL_LANGUAGE_PLANNING_PROMPT)
-        parser = JsonOutputParser()
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_template(NATURAL_LANGUAGE_PLANNING_PROMPT)
+        parser: JsonOutputParser = JsonOutputParser()
         chain = prompt | self.llm | parser
 
         try:
             logger.info(f"[GOAL] Planning attacks for goal: {goal}")
-            result = chain.invoke({
+            result: Dict[str, Any] = chain.invoke({
                 "goal": goal,
                 "endpoints": endpoints_str,
                 "profiles": profiles_str
@@ -812,10 +814,10 @@ class NaturalLanguagePlanner:
             if result.get("endpoints"):
                 logger.info(f"[GOAL] LLM selected {len(result['endpoints'])} relevant endpoints")
                 for ep in result.get("endpoints", [])[:3]:  # Log top 3
-                    score = ep.get('relevance_score', 0)
+                    score: Any = ep.get('relevance_score', 0)
                     # Convert to float safely
                     try:
-                        score_val = float(score)
+                        score_val: float = float(score)
                     except (TypeError, ValueError):
                         score_val = 0.0
                     logger.info(
@@ -853,20 +855,20 @@ class NaturalLanguagePlanner:
         """Load list of available attack profile names."""
         try:
             import os as _os
-            module_dir = _os.path.dirname(_os.path.abspath(__file__))
-            package_root = _os.path.dirname(_os.path.dirname(module_dir))
-            toys_dir = _os.path.join(package_root, "toys")
-            profile_files = glob.glob(_os.path.join(toys_dir, "*.yaml"))
+            module_dir: str = _os.path.dirname(_os.path.abspath(__file__))
+            package_root: str = _os.path.dirname(_os.path.dirname(module_dir))
+            toys_dir: str = _os.path.join(package_root, "toys")
+            profile_files: List[str] = glob.glob(_os.path.join(toys_dir, "*.yaml"))
             if not profile_files:
                 return default_profiles
             
             # Load YAML name fields to match attack dict profile_name values
-            profile_names = []
+            profile_names: List[str] = []
             for profile_file in profile_files:
                 try:
                     with open(profile_file, 'r') as f:
-                        profile_data = yaml.safe_load(f)
-                        name = profile_data.get("name", _os.path.basename(profile_file).replace(".yaml", ""))
+                        profile_data: Optional[Dict[str, Any]] = yaml.safe_load(f)
+                        name: str = profile_data.get("name", _os.path.basename(profile_file).replace(".yaml", "")) if profile_data else _os.path.basename(profile_file).replace(".yaml", "")
                         profile_names.append(name)
                 except Exception:
                     # Fallback to file-stem if YAML read fails

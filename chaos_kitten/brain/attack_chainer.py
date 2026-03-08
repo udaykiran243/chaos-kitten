@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from collections import defaultdict
 
 from langchain_core.language_models import BaseChatModel
@@ -14,55 +14,55 @@ logger = logging.getLogger(__name__)
 class EndpointGraph:
     """Builds a directed graph of endpoints based on shared parameters and response fields."""
     
-    def __init__(self, endpoints: List[Dict[str, Any]]):
-        self.endpoints = endpoints
-        self.graph = defaultdict(list)
+    def __init__(self, endpoints: List[Dict[str, Any]]) -> None:
+        self.endpoints: List[Dict[str, Any]] = endpoints
+        self.graph: defaultdict[int, List[Dict[str, Any]]] = defaultdict(list)
         self._build_graph()
         
-    def _build_graph(self):
+    def _build_graph(self) -> None:
         """Build the graph by finding endpoints that output fields required by other endpoints."""
         # Map field names to endpoints that produce them in responses
-        producers = defaultdict(list)
+        producers: defaultdict[str, List[int]] = defaultdict(list)
         # Map field names to endpoints that consume them in requests
-        consumers = defaultdict(list)
+        consumers: defaultdict[str, List[int]] = defaultdict(list)
         
         for i, ep in enumerate(self.endpoints):
             # Find consumed fields
             for param in ep.get("parameters", []):
-                name = param.get("name")
+                name: Optional[str] = param.get("name")
                 if name:
                     consumers[name.lower()].append(i)
             
-            req_body = ep.get("requestBody", {})
+            req_body: Dict[str, Any] = ep.get("requestBody", {})
             if req_body:
-                content = req_body.get("content", {})
+                content: Dict[str, Any] = req_body.get("content", {})
                 for _media_type, media_obj in content.items():
-                    schema = media_obj.get("schema", {})
-                    properties = schema.get("properties", {})
+                    schema: Dict[str, Any] = media_obj.get("schema", {})
+                    properties: Dict[str, Any] = schema.get("properties", {})
                     for prop_name in properties.keys():
                         consumers[prop_name.lower()].append(i)
             
             # Find produced fields
-            responses = ep.get("responses", {})
+            responses: Dict[str, Any] = ep.get("responses", {})
             for status, resp_obj in responses.items():
                 if not str(status).startswith("2"):
                     continue
-                content = resp_obj.get("content", {})
+                content: Dict[str, Any] = resp_obj.get("content", {})
                 for _media_type, media_obj in content.items():
-                    schema = media_obj.get("schema", {})
-                    properties = schema.get("properties", {})
+                    schema: Dict[str, Any] = media_obj.get("schema", {})
+                    properties: Dict[str, Any] = schema.get("properties", {})
                     for prop_name in properties.keys():
                         producers[prop_name.lower()].append(i)
                         
         # Create edges from producers to consumers
         # Use a set to avoid duplicate edges if multiple fields map between the same endpoints
-        seen_edges = set()
+        seen_edges: Set[Tuple[int, int, str]] = set()
         for field, prod_list in producers.items():
             if field in consumers:
                 for p in prod_list:
                     for c in consumers[field]:
                         if p != c:
-                            edge_key = (p, c, field)
+                            edge_key: Tuple[int, int, str] = (p, c, field)
                             if edge_key not in seen_edges:
                                 seen_edges.add(edge_key)
                                 # Add edge p -> c with the shared field
@@ -70,12 +70,12 @@ class EndpointGraph:
 
     def get_graph_summary(self) -> str:
         """Return a string summary of the graph for the LLM."""
-        summary = []
+        summary: List[str] = []
         for i, ep in enumerate(self.endpoints):
             summary.append(f"[{i}] {ep.get('method', 'UNKNOWN')} {ep.get('path', '/')}")
-            edges = self.graph.get(i, [])
+            edges: List[Dict[str, Any]] = self.graph.get(i, [])
             if edges:
-                targets = set(f"[{e['target']}] (via {e['field']})" for e in edges)
+                targets: Set[str] = set(f"[{e['target']}] (via {e['field']})" for e in edges)
                 summary.append(f"  -> Feeds into: {', '.join(targets)}")
         return "\n".join(summary)
 
@@ -135,23 +135,23 @@ Example:
 class AttackChainPlanner:
     """Plans multi-step attack chains using an LLM."""
     
-    def __init__(self, llm: BaseChatModel):
-        self.llm = llm
+    def __init__(self, llm: BaseChatModel) -> None:
+        self.llm: BaseChatModel = llm
         
     async def plan_chains(self, endpoints: List[Dict[str, Any]], max_chain_depth: int = 4) -> List[Dict[str, Any]]:
         """Generate attack chains based on the endpoint graph."""
-        graph = EndpointGraph(endpoints)
-        graph_summary = graph.get_graph_summary()
+        graph: EndpointGraph = EndpointGraph(endpoints)
+        graph_summary: str = graph.get_graph_summary()
         
-        endpoints_details = []
+        endpoints_details: List[str] = []
         for i, ep in enumerate(endpoints):
             endpoints_details.append(f"[{i}] {ep.get('method', 'UNKNOWN')} {ep.get('path', '/')}")
             
-        prompt = ChatPromptTemplate.from_template(CHAIN_PLANNER_PROMPT)
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_template(CHAIN_PLANNER_PROMPT)
         chain = prompt | self.llm | JsonOutputParser()
         
         try:
-            result = await chain.ainvoke({
+            result: Union[List[Dict[str, Any]], Dict[str, Any], str, int, float, bool, None] = await chain.ainvoke({
                 "graph_summary": graph_summary,
                 "endpoints_details": "\n".join(endpoints_details),
                 "max_chain_depth": max_chain_depth
@@ -166,19 +166,28 @@ class AttackChainPlanner:
 class ChainExecutor:
     """Executes a planned attack chain, substituting variables."""
     
-    def __init__(self, executor):
-        self.executor = executor
+    def __init__(self, executor: Any) -> None:
+        self.executor: Any = executor
         
     async def execute_chain(self, chain: Dict[str, Any], base_url: str) -> Dict[str, Any]:
         """Execute a chain of attacks."""
-        variables = {}
-        results = []
-        errors = []
+        variables: Dict[str, Any] = {}
+        results: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
         
         for i, step in enumerate(chain.get("steps", [])):
             try:
-                method = step.get("method")
-                path = step.get("path")
+                method: Optional[str] = step.get("method")
+                path: Optional[str] = step.get("path")
+                
+                if not method or not path:
+                    errors.append({
+                        "step_index": i,
+                        "status": "failed",
+                        "step": step,
+                        "error": "Missing method or path in step"
+                    })
+                    continue
                 
                 # Substitute variables in path
                 for var_name, var_value in variables.items():
@@ -190,7 +199,7 @@ class ChainExecutor:
                 # (e.g. http://example.com/http://example.com/api/users).
                     
                 # Prepare payload with injected variables
-                payload = {}
+                payload: Dict[str, Any] = {}
                 for var_name, field_name in step.get("injects", {}).items():
                     if var_name in variables:
                         payload[field_name] = variables[var_name]
@@ -200,9 +209,9 @@ class ChainExecutor:
                 # Execute attack
                 import httpx
                 if httpx.URL(path).is_absolute_url:
-                    response = await self.executor.execute_attack(method, path, payload)
+                    response: Dict[str, Any] = await self.executor.execute_attack(method, path, payload)
                 else:
-                    response = await self.executor.execute_attack(method, path, payload)
+                    response: Dict[str, Any] = await self.executor.execute_attack(method, path, payload)
                 
                 # Check for execution error
                 if response.get("error"):
@@ -215,7 +224,7 @@ class ChainExecutor:
                     continue
 
                 # Extract variables from response
-                body = response.get("body", {})
+                body: Any = response.get("body", {})
                 if isinstance(body, str):
                     try:
                         body = json.loads(body)
