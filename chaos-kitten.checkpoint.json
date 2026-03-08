@@ -1,0 +1,19 @@
+{
+  "target_url": "http://test.com",
+  "config_hash": "235ea2359e6005831bc496d6e78a1f45037113d8a78e2a7165714ea55e5f8862",
+  "completed_profiles": [],
+  "vulnerabilities": [
+    {
+      "type": "SQL Injection",
+      "title": "SQL Injection",
+      "description": "SQLi detected",
+      "severity": "critical",
+      "endpoint": "GET /users",
+      "method": "GET",
+      "evidence": "Found SQL Error",
+      "payload": "' OR 1=1 --"
+    }
+  ],
+  "timestamp": 1772691866.8152723,
+  "recon_results": {}
+}
