@@ -5,6 +5,7 @@ import yaml
 from httpx import Response
 from pathlib import Path
 from chaos_kitten.brain.openapi_parser import OpenAPIParser
+from chaos_kitten.exceptions import ChaosKittenParsingError
 
 # Helper to create temporary spec files
 @pytest.fixture
@@ -332,4 +333,49 @@ def test_respx_remote_ref(create_spec_file):
             # The code in OpenAPIParser doesn't set no_network=False explicitly, so let's see.
             # ResolvingParser defaults: strict=True.
             pass
+
+
+def test_openapi_parser_invalid_path():
+    """Test that ChaosKittenParsingError is raised for non-existent file paths."""
+    parser = OpenAPIParser("/non/existent/path/openapi.yaml")
+    
+    with pytest.raises(ChaosKittenParsingError) as exc_info:
+        parser.parse()
+    
+    assert "file not found" in str(exc_info.value).lower()
+
+
+def test_openapi_parser_malformed_yaml(tmp_path):
+    """Test that ChaosKittenParsingError is raised for malformed YAML content."""
+    # Create a temporary file with invalid YAML syntax
+    invalid_yaml_file = tmp_path / "invalid.yaml"
+    invalid_yaml_file.write_text("invalid: [yaml: - format")
+    
+    parser = OpenAPIParser(invalid_yaml_file)
+    
+    with pytest.raises(ChaosKittenParsingError) as exc_info:
+        parser.parse()
+    
+    error_message = str(exc_info.value).lower()
+    # Check for any indication of parsing/format error
+    assert any(keyword in error_message for keyword in ["yaml", "format", "parsing", "invalid"])
+
+
+def test_openapi_parser_invalid_schema(tmp_path):
+    """Test that ChaosKittenParsingError is raised for invalid OpenAPI schema structure."""
+    # Create a temporary file with valid YAML but invalid OpenAPI structure
+    invalid_schema_file = tmp_path / "invalid_schema.yaml"
+    invalid_schema_file.write_text("""
+    not_openapi: "invalid"
+    some_random_field: "value"
+    """)
+    
+    parser = OpenAPIParser(invalid_schema_file)
+    
+    with pytest.raises(ChaosKittenParsingError) as exc_info:
+        parser.parse()
+    
+    error_message = str(exc_info.value).lower()
+    # Check for validation failure or unknown format error
+    assert "validation failed" in error_message or "unknown specification" in error_message
 
