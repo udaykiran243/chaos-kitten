@@ -1,11 +1,14 @@
+import json
+from pathlib import Path
+
 import pytest
 import respx
-import json
 import yaml
 from httpx import Response
-from pathlib import Path
+
 from chaos_kitten.brain.openapi_parser import OpenAPIParser
 from chaos_kitten.exceptions import ChaosKittenParsingError
+
 
 # Helper to create temporary spec files
 @pytest.fixture
@@ -39,7 +42,7 @@ def test_parse_valid_openapi_3_0(create_spec_file, sample_api_spec):
     spec_path = create_spec_file(sample_api_spec)
     parser = OpenAPIParser(spec_path)
     spec = parser.parse()
-    
+
     assert spec['openapi'] == "3.0.0"
     endpoints = parser.get_endpoints()
     assert len(endpoints) == 1
@@ -62,7 +65,7 @@ def test_parse_openapi_3_1(create_spec_file):
     spec_path = create_spec_file(content)
     parser = OpenAPIParser(spec_path)
     spec = parser.parse()
-    
+
     assert spec['openapi'] == "3.1.0"
     endpoints = parser.get_endpoints()
     assert endpoints[0]['method'] == "POST"
@@ -88,7 +91,7 @@ def test_complex_path_parameters(create_spec_file):
     parser = OpenAPIParser(spec_path)
     parser.parse()
     endpoints = parser.get_endpoints()
-    
+
     assert len(endpoints) == 1
     params = endpoints[0]['parameters']
     assert len(params) == 2
@@ -116,11 +119,11 @@ def test_required_vs_optional_params(create_spec_file):
     parser = OpenAPIParser(spec_path)
     parser.parse()
     endpoints = parser.get_endpoints()
-    
+
     params = endpoints[0]['parameters']
     q_param = next(p for p in params if p['name'] == 'q')
     limit_param = next(p for p in params if p['name'] == 'limit')
-    
+
     assert q_param['required'] is True
     assert limit_param.get('required') is False
 
@@ -158,7 +161,7 @@ def test_content_type_handling(create_spec_file):
     parser = OpenAPIParser(spec_path)
     parser.parse()
     endpoints = parser.get_endpoints()
-    
+
     rb = endpoints[0]['requestBody']
     assert "multipart/form-data" in rb['content']
 
@@ -189,7 +192,7 @@ def test_authentication_schemes(create_spec_file):
     # However, security is attached to endpoints
     parser.parse()
     endpoints = parser.get_endpoints()
-    
+
     assert [{"BearerAuth": []}] == endpoints[0]['security']
 
 def test_response_handling(create_spec_file):
@@ -213,7 +216,7 @@ def test_response_handling(create_spec_file):
     parser = OpenAPIParser(spec_path)
     parser.parse()
     endpoints = parser.get_endpoints()
-    
+
     responses = endpoints[0]['responses']
     assert "200" in responses
     assert "404" in responses
@@ -222,13 +225,13 @@ def test_response_handling(create_spec_file):
 def test_invalid_spec_missing_fields(create_spec_file):
     """Test error handling for specs with missing required fields."""
     content = {
-        "info": {"title": "Invalid"}, 
+        "info": {"title": "Invalid"},
         # Missing 'openapi' or 'swagger'
         "paths": {}
     }
     spec_path = create_spec_file(content)
     parser = OpenAPIParser(spec_path)
-    
+
     # Prance validation fails with "Could not determine specification schema version"
     with pytest.raises(ValueError, match="Could not determine specification schema version"):
         parser.parse()
@@ -237,7 +240,7 @@ def test_invalid_spec_malformed_file(create_spec_file):
     """Test error handling for malformed spec files."""
     p = create_spec_file({}, filename="bad.json")
     p.write_text("{ unclosed json ")
-    
+
     parser = OpenAPIParser(p)
     # Prance fails to detect format
     with pytest.raises(ValueError, match="Could not detect format of spec string"):
@@ -266,11 +269,11 @@ def test_real_world_spec():
     sample_path = Path("examples/sample_openapi.json")
     if not sample_path.exists():
         pytest.skip("Sample OpenAPI spec not found")
-        
+
     parser = OpenAPIParser(sample_path)
     parser.parse()
     endpoints = parser.get_endpoints()
-    
+
     assert len(endpoints) > 0
     # verify some known endpoints from the sample
     paths = [ep['path'] for ep in endpoints]
@@ -281,12 +284,12 @@ def test_respx_remote_ref(create_spec_file):
     """Test resolving a remote $ref using respx."""
     # This simulates a spec that references a remote schema
     # Prance ResolvingParser should be able to fetch it if configured (default uses requests)
-    
+
     remote_schema = {
         "type": "string",
         "example": "remote_value"
     }
-    
+
     content = {
         "openapi": "3.0.0",
         "info": {"title": "Remote Ref", "version": "1.0.0"},
@@ -307,28 +310,28 @@ def test_respx_remote_ref(create_spec_file):
             }
         }
     }
-    
+
     spec_path = create_spec_file(content)
-    
+
     # Mock the remote request
     with respx.mock:
         respx.get("http://example.com/schema.json").mock(
             return_value=Response(200, json=remote_schema)
         )
-        
+
         parser = OpenAPIParser(spec_path)
         # Note regarding Prance and RESJP:
-        # Prance uses its own resolving mechanism. If it uses `requests` under the hood, 
+        # Prance uses its own resolving mechanism. If it uses `requests` under the hood,
         # respx should catch it. Standard prance usage might need validation to see if it hits network.
         # But per requirements we use respx.
-        
+
         try:
             parser.parse()
             endpoints = parser.get_endpoints()
             schema = endpoints[0]['responses']['200']['content']['application/json']['schema']
             # If resolved, it should have the properties of remote_schema
             assert schema.get('type') == 'string'
-        except Exception as e:
+        except Exception:
             # If prance is configured securely (no_network=True by default in some envs), this might fail
             # The code in OpenAPIParser doesn't set no_network=False explicitly, so let's see.
             # ResolvingParser defaults: strict=True.
@@ -338,10 +341,10 @@ def test_respx_remote_ref(create_spec_file):
 def test_openapi_parser_invalid_path():
     """Test that ChaosKittenParsingError is raised for non-existent file paths."""
     parser = OpenAPIParser("/non/existent/path/openapi.yaml")
-    
+
     with pytest.raises(ChaosKittenParsingError) as exc_info:
         parser.parse()
-    
+
     assert "file not found" in str(exc_info.value).lower()
 
 
@@ -350,12 +353,12 @@ def test_openapi_parser_malformed_yaml(tmp_path):
     # Create a temporary file with invalid YAML syntax
     invalid_yaml_file = tmp_path / "invalid.yaml"
     invalid_yaml_file.write_text("invalid: [yaml: - format")
-    
+
     parser = OpenAPIParser(invalid_yaml_file)
-    
+
     with pytest.raises(ChaosKittenParsingError) as exc_info:
         parser.parse()
-    
+
     error_message = str(exc_info.value).lower()
     # Check for any indication of parsing/format error
     assert any(keyword in error_message for keyword in ["yaml", "format", "parsing", "invalid"])
@@ -369,12 +372,12 @@ def test_openapi_parser_invalid_schema(tmp_path):
     not_openapi: "invalid"
     some_random_field: "value"
     """)
-    
+
     parser = OpenAPIParser(invalid_schema_file)
-    
+
     with pytest.raises(ChaosKittenParsingError) as exc_info:
         parser.parse()
-    
+
     error_message = str(exc_info.value).lower()
     # Check for validation failure or unknown format error
     assert "validation failed" in error_message or "unknown specification" in error_message
