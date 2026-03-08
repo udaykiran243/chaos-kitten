@@ -382,3 +382,164 @@ def test_openapi_parser_invalid_schema(tmp_path):
     # Check for validation failure or unknown format error
     assert "validation failed" in error_message or "unknown specification" in error_message
 
+
+def test_parameter_merging_operation_overrides_path(create_spec_file):
+    """Test that operation-level parameters correctly override path-level parameters."""
+    content = {
+        "openapi": "3.0.0",
+        "info": {"title": "Parameter Merging Test", "version": "1.0.0"},
+        "paths": {
+            "/users/{userId}": {
+                "parameters": [
+                    {
+                        "name": "userId",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                        "description": "Path-level userId parameter"
+                    },
+                    {
+                        "name": "filter",
+                        "in": "query",
+                        "schema": {"type": "string"},
+                        "description": "Path-level filter parameter"
+                    }
+                ],
+                "get": {
+                    "parameters": [
+                        {
+                            "name": "userId",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "integer"},
+                            "description": "Operation-level userId parameter (should override)"
+                        }
+                    ],
+                    "responses": {"200": {"description": "Success"}}
+                }
+            }
+        }
+    }
+    
+    spec_path = create_spec_file(content)
+    parser = OpenAPIParser(spec_path)
+    parser.parse()
+    endpoints = parser.get_endpoints()
+    
+    assert len(endpoints) == 1
+    params = endpoints[0]['parameters']
+    
+    # Should have 2 parameters: userId (overridden) and filter (from path-level)
+    assert len(params) == 2
+    
+    # Find the userId parameter
+    user_id_param = next(p for p in params if p['name'] == 'userId')
+    
+    # Operation-level parameter should override path-level
+    assert user_id_param['schema']['type'] == 'integer'  # From operation-level
+    assert user_id_param['description'] == 'Operation-level userId parameter (should override)'
+    
+    # Filter parameter should come from path-level
+    filter_param = next(p for p in params if p['name'] == 'filter')
+    assert filter_param['description'] == 'Path-level filter parameter'
+
+
+def test_parameter_merging_complex_scenario(create_spec_file):
+    """Test parameter merging with multiple parameters and different types."""
+    content = {
+        "openapi": "3.0.0",
+        "info": {"title": "Complex Parameter Merging", "version": "1.0.0"},
+        "paths": {
+            "/api/data": {
+                "parameters": [
+                    {"name": "apiKey", "in": "header", "required": True, "schema": {"type": "string"}},
+                    {"name": "version", "in": "query", "schema": {"type": "string"}},
+                    {"name": "format", "in": "query", "schema": {"type": "string", "enum": ["json", "xml"]}}
+                ],
+                "get": {
+                    "parameters": [
+                        {"name": "version", "in": "query", "schema": {"type": "string"}, "description": "Overridden version param"},
+                        {"name": "include", "in": "query", "schema": {"type": "boolean"}, "description": "New include param"}
+                    ],
+                    "responses": {"200": {"description": "Success"}}
+                },
+                "post": {
+                    "parameters": [
+                        {"name": "apiKey", "in": "header", "required": False, "schema": {"type": "string"}, "description": "Overridden apiKey (optional now)"}
+                    ],
+                    "responses": {"200": {"description": "Success"}}
+                }
+            }
+        }
+    }
+    
+    spec_path = create_spec_file(content)
+    parser = OpenAPIParser(spec_path)
+    parser.parse()
+    endpoints = parser.get_endpoints()
+    
+    # Should have 2 endpoints: GET and POST
+    assert len(endpoints) == 2
+    
+    # Check GET endpoint parameters
+    get_endpoint = next(ep for ep in endpoints if ep['method'] == 'GET')
+    get_params = get_endpoint['parameters']
+    
+    # Should have 4 parameters: apiKey (from path), version (overridden), format (from path), include (from operation)
+    assert len(get_params) == 4
+    
+    # Check version override
+    version_param = next(p for p in get_params if p['name'] == 'version')
+    assert version_param['description'] == 'Overridden version param'
+    
+    # Check POST endpoint parameters  
+    post_endpoint = next(ep for ep in endpoints if ep['method'] == 'POST')
+    post_params = post_endpoint['parameters']
+    
+    # Should have 3 parameters: apiKey (overridden), version (from path), format (from path)
+    assert len(post_params) == 3
+    
+    # Check apiKey override in POST
+    apikey_param = next(p for p in post_params if p['name'] == 'apiKey')
+    assert apikey_param['required'] is False  # From operation-level
+    assert apikey_param['description'] == 'Overridden apiKey (optional now)'
+
+
+def test_parameter_merging_edge_case_missing_properties(create_spec_file):
+    """Test parameter merging with incomplete parameter definitions."""
+    content = {
+        "openapi": "3.0.0",
+        "info": {"title": "Edge Case Test", "version": "1.0.0"},
+        "paths": {
+            "/test": {
+                "parameters": [
+                    {"name": "param1", "schema": {"type": "string"}}  # Missing 'in' field
+                ],
+                "get": {
+                    "parameters": [
+                        {"name": "param1", "in": "query", "schema": {"type": "integer"}}  # Complete param
+                    ],
+                    "responses": {"200": {"description": "Success"}}
+                }
+            }
+        }
+    }
+    
+    spec_path = create_spec_file(content)
+    parser = OpenAPIParser(spec_path)
+    parser.parse()
+    endpoints = parser.get_endpoints()
+    
+    # Should have 1 endpoint
+    assert len(endpoints) == 1
+    params = endpoints[0]['parameters']
+    
+    # Should have 1 parameter (the operation-level one should override)
+    assert len(params) == 1
+    
+    param = params[0]
+    # The operation-level parameter should be used
+    assert param['name'] == 'param1'
+    assert param['in'] == 'query'
+    assert param['schema']['type'] == 'integer'
+
