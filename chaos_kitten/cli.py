@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from chaos_kitten.brain.cors import analyze_cors
 from chaos_kitten.toys_cli import toys_app
+from chaos_kitten import __version__
 
 logger = logging.getLogger(__name__)
 
