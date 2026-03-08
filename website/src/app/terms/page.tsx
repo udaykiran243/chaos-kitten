@@ -269,7 +269,7 @@ export default function Page() {
 <div className="shell">
         {/* Top bar with Go Back button */}
         <div className="top-bar">
-            <button className="back-btn" onclick="window.history.back()">
+            <button className="back-btn" onClick={() => window.history.back()}>
                 <span className="icon">←</span>
                 <span>Go back</span>
             </button>
