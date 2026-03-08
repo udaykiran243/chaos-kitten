@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from chaos_kitten.brain.cors import analyze_cors
 from chaos_kitten.toys_cli import toys_app
+from chaos_kitten import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +273,41 @@ def scan(
             console.print("\n[bold green]📊 Scan Summary:[/bold green]")
             console.print(f"   Tested Endpoints: {summary.get('tested_endpoints', 0)} / {summary.get('total_endpoints', 0)}")
             console.print(f"   Vulnerabilities Found: [bold red]{summary.get('vulnerabilities_found', 0)}[/bold red]")
+
+        # Feature #268: Implementation of --fail-on flag
+        if fail_on.lower() != "none":
+            severity_map = {
+                "none": -1,
+                "info": 0,
+                "low": 1,
+                "medium": 2,
+                "high": 3,
+                "critical": 4,
+            }
+            threshold = severity_map.get(fail_on.lower(), -1)
+            # Support both 'findings' (orchestrator default) and 'vulnerabilities' (test mock default)
+            findings = results.get("findings",results.get("vulnerabilities", []))
+            
+            max_severity_found = -1
+            for finding in findings:
+                # Findings can be dicts or objects with a severity attribute
+                sev_str = ""
+                if isinstance(finding, dict):
+                    sev_str = finding.get("severity", "info")
+                elif hasattr(finding, "severity"):
+                    # Handle Enum values (e.g. Severity.HIGH)
+                    sev_str = finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity)
+                
+                sev_val = severity_map.get(sev_str.lower(), 0)
+                if sev_val > max_severity_found:
+                    max_severity_found = sev_val
+            
+            if max_severity_found >= threshold:
+                if not silent:
+                    console.print(f"\n[bold red]❌ Failing pipeline: Found vulnerabilities at or above '{fail_on}' severity.[/bold red]")
+                raise typer.Exit(code=1)
+            elif not silent:
+                 console.print(f"\n[green]✓ No vulnerabilities found exceeding '{fail_on}' threshold.[/green]")
 
     except typer.Exit:
         raise

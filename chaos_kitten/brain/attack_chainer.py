@@ -198,7 +198,11 @@ class ChainExecutor:
                         logger.warning(f"Missing variable '{var_name}' for step {i}, payload may be incomplete")
                         
                 # Execute attack
-                response = await self.executor.execute_attack(method, path, payload)
+                import httpx
+                if httpx.URL(path).is_absolute_url:
+                    response = await self.executor.execute_attack(method, path, payload)
+                else:
+                    response = await self.executor.execute_attack(method, path, payload)
                 
                 # Check for execution error
                 if response.get("error"):
@@ -242,7 +246,7 @@ class ChainExecutor:
             
         return {
             "chain": chain,
-            "successful": results,
+            "results": results,
             "failed": errors,
             "partial_success": len(results) > 0 and len(errors) > 0
         }

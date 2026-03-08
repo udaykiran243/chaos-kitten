@@ -5,7 +5,8 @@ import logging
 import re
 import time
 import random
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional, Union
 import httpx
 import urllib.parse
@@ -338,8 +339,14 @@ class Executor:
                 try:
                     wait_time = float(header_val)
                 except ValueError:
-                    # Todo: Handle date format if needed
-                    wait_time = self.base_backoff
+                    # Try to parse as HTTP-date format (RFC 1123)
+                    try:
+                        parsed_date = parsedate_to_datetime(header_val)
+                        delta = (parsed_date - datetime.now(timezone.utc)).total_seconds()
+                        wait_time = max(0, delta)
+                    except (TypeError, ValueError):
+                        # Fallback to default backoff if date parsing fails
+                        wait_time = self.base_backoff
 
                 logger.info(f"Rate limited. Waiting {wait_time}s as per Retry-After header.")
                 await asyncio.sleep(wait_time)
@@ -384,7 +391,7 @@ class Executor:
 
     def _setup_logging(self) -> None:
         """Setup request/response logging."""
-        self._logger = logging.getLogger(f"{__name__}.traffic")
+        self._logger = logging.getLogger(f"{__name__}.traffic.{id(self)}")
         self._logger.setLevel(logging.INFO)
         
         # Suppress httpx info logs to prevent leaking sensitive data or double logging
@@ -432,6 +439,8 @@ class Executor:
                  # Reconstruct query string
                  # parse_qs checks returns lists. urlencode handles it.
                  new_query = urllib.parse.urlencode(qs, doseq=True)
+                 # Revert encoding for the redaction marker to keep logs readable
+                 new_query = new_query.replace("%5BREDACTED%5D", "[REDACTED]")
                  full_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
         except Exception:
              pass # Fail safe

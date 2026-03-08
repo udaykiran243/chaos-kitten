@@ -98,6 +98,12 @@ class Config:
             max_rounds = adaptive["max_rounds"]
             if not isinstance(max_rounds, int) or max_rounds < 1 or max_rounds > 10:
                 raise ValueError("adaptive.max_rounds must be an integer between 1 and 10")
+        
+        # Validate state_machine config
+        sm = self._config.get("state_machine", {})
+        if "enabled" in sm:
+            if not isinstance(sm["enabled"], bool):
+                raise ValueError("state_machine.enabled must be a boolean")
     
     @property
     def target(self) -> Dict[str, Any]:
@@ -141,4 +147,9 @@ class Config:
     def checkpoint_path(self) -> Path:
         """Get path to the checkpoint file."""
         return Path(self._config.get("checkpoint_path", ".chaos-checkpoint.json"))
+
+    @property
+    def state_machine(self) -> Dict[str, Any]:
+        """Get state machine configuration."""
+        return self._config.get("state_machine", {})
 

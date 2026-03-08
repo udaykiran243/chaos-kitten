@@ -18,6 +18,7 @@ export default function Footer() {
                 <a href="https://github.com/mdhaarishussain/chaos-kitten/blob/main/docs/contributing_guide.md" target="_blank" rel="noopener noreferrer">Contributing</a>
                 <a href="https://github.com/mdhaarishussain/chaos-kitten/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
                 <Link href="/privacy-policy" className="nav-link">Privacy Policy</Link>
+                <Link href="/terms" className="nav-link">Terms of Service</Link>
             </div>
             <div className="footer-social">
                 <a href="https://github.com/mdhaarishussain/chaos-kitten"><i className="fab fa-github"></i></a>
