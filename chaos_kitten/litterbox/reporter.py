@@ -10,6 +10,7 @@ from xml.dom import minidom
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound, TemplateError
 from chaos_kitten.litterbox.themes import get_theme
 from chaos_kitten import __version__
+from chaos_kitten.exceptions import ChaosKittenReportingError, ChaosKittenError
 
 try:
     from weasyprint import HTML
@@ -87,7 +88,7 @@ class Reporter:
         
         for fmt in formats:
             if fmt not in valid_formats:
-                raise ValueError(f"Unknown format: '{fmt}'. Supported formats: {', '.join(sorted(valid_formats))}")
+                raise ChaosKittenReportingError(f"Unknown format: '{fmt}'. Supported formats: {', '.join(sorted(valid_formats))}")
             
             # Generate filename
             report_filename: str
@@ -157,7 +158,7 @@ class Reporter:
             last_output_file = output_file
 
         if last_output_file is None:
-            raise RuntimeError("No report was generated. Check that the requested format(s) are available.")
+            raise ChaosKittenReportingError("No report was generated. Check that the requested format(s) are available.")
 
         return last_output_file
 
@@ -180,7 +181,7 @@ class Reporter:
             # Get the template directory path relative to this file
             template_dir: Path = Path(__file__).parent / "templates"
             if not template_dir.exists():
-                raise FileNotFoundError(
+                raise ChaosKittenReportingError(
                     f"Template directory not found: {template_dir}. "
                     f"Please ensure the templates directory exists in {template_dir.parent}"
                 )
@@ -194,13 +195,13 @@ class Reporter:
             )
 
         except PermissionError as e:
-            raise PermissionError(
+            raise ChaosKittenReportingError(
                 f"Permission denied accessing template directory: {template_dir}. "
                 f"Please check file permissions. Original error: {e}"
             ) from e
         except Exception as e:
             logger.error(f"Failed to setup template engine: {e}")
-            raise RuntimeError(f"Template setup failed: {e}").with_traceback(e.__traceback__)
+            raise ChaosKittenReportingError(f"Template setup failed: {e}") from e
 
     def _load_template(self, template_name: str) -> Any:
         """Load a Jinja2 template with error handling.
@@ -219,12 +220,12 @@ class Reporter:
             return self.template_env.get_template(template_name)
         except TemplateNotFound as e:
             template_dir: Path = Path(__file__).parent / "templates"
-            raise FileNotFoundError(
+            raise ChaosKittenReportingError(
                 f"Template file '{template_name}' not found in {template_dir}. "
                 f"Available templates: {list(template_dir.glob('*.html')) + list(template_dir.glob('*.md'))}"
             ) from e
         except TemplateError as e:
-            raise TemplateError(
+            raise ChaosKittenReportingError(
                 f"Template '{template_name}' has syntax errors: {e}. "
                 f"Please check the template file for valid Jinja2 syntax."
             ) from e
@@ -245,12 +246,12 @@ class Reporter:
             TypeError: If vulnerability data types are incorrect
         """
         if not isinstance(results, dict):
-            raise TypeError(f"Expected dict for results, got {type(results)}")
+            raise ChaosKittenReportingError(f"Expected dict for results, got {type(results)}")
 
         # Extract vulnerabilities from results
         vulnerabilities: List[Any] = results.get("vulnerabilities", [])
         if not isinstance(vulnerabilities, list):
-            raise TypeError(
+            raise ChaosKittenReportingError(
                 f"Expected list for vulnerabilities, got {type(vulnerabilities)}"
             )
 
@@ -259,17 +260,17 @@ class Reporter:
 
         for i, vuln in enumerate(vulnerabilities):
             if not isinstance(vuln, dict):
-                raise TypeError(f"Vulnerability {i} must be a dict, got {type(vuln)}")
+                raise ChaosKittenReportingError(f"Vulnerability {i} must be a dict, got {type(vuln)}")
 
             # Validate required fields
             required_fields: List[str] = ["title", "description"]
             for field in required_fields:
                 if field not in vuln:
-                    raise ValueError(
+                    raise ChaosKittenReportingError(
                         f"Vulnerability {i} missing required field: {field}"
                     )
                 if not isinstance(vuln[field], str) or not vuln[field].strip():
-                    raise ValueError(
+                    raise ChaosKittenReportingError(
                         f"Vulnerability {i} field '{field}' must be a non-empty string"
                     )
 
@@ -401,7 +402,7 @@ class Reporter:
             logger.info(f"Generated PDF report: {output_path}")
         except Exception as e:
             logger.error(f"Failed to generate PDF report: {e}")
-            raise
+            raise ChaosKittenReportingError(f"Failed to generate PDF report: {e}") from e
 
 
     def _generate_html(self, results: Dict[str, Any], target: str) -> str:
@@ -451,9 +452,9 @@ class Reporter:
                 return str(template.render(**context))
 
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid vulnerability data: {e}") from e
+                raise ChaosKittenReportingError(f"Invalid vulnerability data: {e}") from e
             except TemplateError as e:
-                raise TemplateError(f"HTML template rendering failed: {e}") from e
+                raise ChaosKittenReportingError(f"HTML template rendering failed: {e}") from e
 
     
     def _generate_markdown(self, results: Dict[str, Any], target: str) -> str:
@@ -517,9 +518,9 @@ class Reporter:
                 return str(template.render(**context))
 
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid vulnerability data: {e}") from e
+                raise ChaosKittenReportingError(f"Invalid vulnerability data: {e}") from e
             except TemplateError as e:
-                raise TemplateError(f"Markdown template rendering failed: {e}") from e
+                raise ChaosKittenReportingError(f"Markdown template rendering failed: {e}") from e
 
     
     def _generate_json(self, results: Dict[str, Any], target: str) -> str:
@@ -554,7 +555,7 @@ class Reporter:
                 return json.dumps(report_data, indent=2, ensure_ascii=False)
 
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid vulnerability data for JSON export: {e}") from e
+                raise ChaosKittenReportingError(f"Invalid vulnerability data for JSON export: {e}") from e
 
     
     def _generate_sarif_from_vulns(self, vulnerabilities: List[Dict[str, Any]], target: str) -> str:
@@ -644,7 +645,7 @@ class Reporter:
                 return json.dumps(sarif_report, indent=2)
 
             except Exception as e:
-                raise ValueError(f"Failed to generate SARIF report: {e}") from e
+                raise ChaosKittenReportingError(f"Failed to generate SARIF report: {e}") from e
 
     
     def _map_severity_to_sarif(self, severity: str) -> str:
@@ -721,4 +722,4 @@ class Reporter:
             return parsed.toprettyxml(indent="  ")
 
         except Exception as e:
-            raise ValueError(f"Failed to generate JUnit report: {e}") from e
+            raise ChaosKittenReportingError(f"Failed to generate JUnit report: {e}") from e

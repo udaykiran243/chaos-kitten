@@ -10,6 +10,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional, Union, List, Tuple
 import httpx
 import urllib.parse
+from chaos_kitten.exceptions import ChaosKittenNetworkError, ChaosKittenError
 
 try:
     import pyotp
@@ -301,7 +302,7 @@ class Executor:
                 self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
                 return last_result
 
-            except (httpx.ConnectError, httpx.HTTPError) as e:
+            except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
                  elapsed_ms: float = (time.perf_counter() - start_time) * 1000
                  error_msg: str = f"HTTP/Connection error: {str(e)}"
                  logger.warning(f"HTTP error executing {method} {path}: {e}")

@@ -5,6 +5,7 @@ import asyncio
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from chaos_kitten.exceptions import ChaosKittenNetworkError, ChaosKittenError
 
 if TYPE_CHECKING:
     try:
@@ -96,7 +97,7 @@ class BrowserExecutor:
             logger.error(f"Failed to launch browser: {e}")
             if self._playwright:
                 await self._playwright.stop()
-            raise
+            raise ChaosKittenNetworkError(f"Failed to launch browser: {e}") from e
 
         return self
 
@@ -117,11 +118,11 @@ class BrowserExecutor:
     def _check_playwright(self) -> None:
         """Check if Playwright is available and initialized."""
         if not self._playwright_available:
-            raise RuntimeError(
+            raise ChaosKittenNetworkError(
                 "Playwright is not installed. Install with 'pip install playwright'."
             )
         if not self._browser or not self._context:
-            raise RuntimeError(
+            raise ChaosKittenNetworkError(
                 "Browser not initialized. Use 'async with BrowserExecutor()' context manager."
             )
 

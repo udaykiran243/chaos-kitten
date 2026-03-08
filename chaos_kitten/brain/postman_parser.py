@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from chaos_kitten.exceptions import ChaosKittenParsingError, ChaosKittenError
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class PostmanParser:
                 self.collection = json.load(f)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse Postman collection JSON: {e}")
-            raise
+            raise ChaosKittenParsingError(f"Failed to parse Postman collection JSON: {e}") from e
 
         # 1. Load Collection Variables (defaults)
         if 'variable' in self.collection:
@@ -316,14 +317,14 @@ class PostmanParser:
             List[Dict[str, Any]]: List of normalized endpoint objects.
         """
         if not self._endpoints:
-             try:
+            try:
                 self.parse()
-             except (FileNotFoundError, json.JSONDecodeError):
-                 # Re-raise critical file/format errors
-                 raise
-             except Exception as e:
-                 logger.error(f"Error getting endpoints: {e}")
-                 return []
+            except (FileNotFoundError, json.JSONDecodeError):
+                # Re-raise critical file/format errors
+                raise
+            except Exception as e:
+                logger.error(f"Error getting endpoints: {e}")
+                return []
         return self._endpoints
 
     def get_servers(self) -> List[str]:

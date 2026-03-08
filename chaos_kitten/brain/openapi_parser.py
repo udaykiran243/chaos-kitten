@@ -34,6 +34,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from prance import ResolvingParser
+from chaos_kitten.exceptions import ChaosKittenParsingError, ChaosKittenError
 
 logger = logging.getLogger(__name__)
 
@@ -93,27 +94,27 @@ class OpenAPIParser:
                     logger.info(f"Detected OpenAPI {self.version} spec")
                     self._parse_openapi_3x()
                 else:
-                    raise ValueError(f"Unsupported OpenAPI version: {self.version}")
+                    raise ChaosKittenParsingError(f"Unsupported OpenAPI version: {self.version}")
             elif 'swagger' in self.spec:
                 self.version = self.spec['swagger']
                 if self.version == '2.0':
                     logger.info(f"Detected Swagger {self.version} spec")
                     self._parse_swagger_2()
                 else:
-                    raise ValueError(f"Unsupported Swagger version: {self.version}")
+                    raise ChaosKittenParsingError(f"Unsupported Swagger version: {self.version}")
             else:
-                raise ValueError("Unknown specification format. Missing 'openapi' or 'swagger' field.")
+                raise ChaosKittenParsingError("Unknown specification format. Missing 'openapi' or 'swagger' field.")
                 
             return self.spec
 
         except (ValueError, KeyError) as e:
             # Re-raise known errors with context
             logger.error(f"Invalid OpenAPI spec: {e}")
-            raise ValueError(f"Invalid OpenAPI spec: {e}") from e
+            raise ChaosKittenParsingError(f"Invalid OpenAPI spec: {e}") from e
         except Exception as e:
             # Catch-all for parsing library errors (e.g. prance validation errors)
             logger.error(f"Failed to parse OpenAPI spec: {e}")
-            raise ValueError(f"Failed to parse OpenAPI spec: {e}") from e
+            raise ChaosKittenParsingError(f"Failed to parse OpenAPI spec: {e}") from e
 
     def _parse_openapi_3x(self) -> None:
         """Extract endpoints from OpenAPI 3.x paths."""
@@ -356,7 +357,7 @@ class OpenAPIParser:
                     servers.append(f"{scheme}://{host}{base_path}")
             else:
                 # If host is missing, raise error (no silent fallback to localhost/relative)
-                raise ValueError("Swagger 2.0 spec missing 'host' field; provide an explicit target URL.")
+                raise ChaosKittenParsingError("Swagger 2.0 spec missing 'host' field; provide an explicit target URL.")
         
         return servers
 
