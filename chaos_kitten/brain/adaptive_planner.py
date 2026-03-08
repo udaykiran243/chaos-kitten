@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 try:
     from langchain_core.language_models import BaseChatModel
@@ -36,15 +36,15 @@ Return ONLY a JSON array of 5 payload strings. Example:
 class AdaptivePayloadGenerator:
     """Generates adaptive payloads based on probe responses."""
 
-    def __init__(self, llm: BaseChatModel, max_rounds: int = 3):
+    def __init__(self, llm: BaseChatModel, max_rounds: int = 3) -> None:
         """Initialize the generator.
 
         Args:
             llm: The language model to use.
             max_rounds: Maximum number of adaptive rounds (not strictly enforced here, but good context).
         """
-        self.llm = llm
-        self.max_rounds = max_rounds
+        self.llm: BaseChatModel = llm
+        self.max_rounds: int = max_rounds
 
     async def generate_payloads(
         self,
@@ -63,17 +63,17 @@ class AdaptivePayloadGenerator:
             List of generated payloads (strings).
         """
         try:
-            prompt = ChatPromptTemplate.from_template(ADAPTIVE_GENERATION_PROMPT)
+            prompt: ChatPromptTemplate = ChatPromptTemplate.from_template(ADAPTIVE_GENERATION_PROMPT)
             chain = prompt | self.llm | JsonOutputParser()
 
             # Truncate response body if too long
-            body_str = str(response.get("body", ""))
+            body_str: str = str(response.get("body", ""))
             if len(body_str) > 2000:
                 body_str = body_str[:2000] + "... (truncated)"
 
-            payload_str = str(previous_payload)
+            payload_str: str = str(previous_payload)
             
-            result = await chain.ainvoke(
+            result: Union[List[str], Dict[str, Any], str, int, float, bool, None] = await chain.ainvoke(
                 {
                     "method": endpoint.get("method", "GET"),
                     "path": endpoint.get("path", ""),
