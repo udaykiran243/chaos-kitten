@@ -157,7 +157,7 @@ class OpenAPIParser:
                 # Merge path-level and operation-level parameters
                 # Operation-level params override path-level by (name, in)
                 op_params = operation.get('parameters', [])
-                merged_params = {}
+                merged_params: dict[tuple[str, str], dict[str, Any]] = {}
                 
                 # Add path-level parameters with fallback for missing keys
                 for param in path_params:
