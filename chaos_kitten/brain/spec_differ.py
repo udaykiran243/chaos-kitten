@@ -1,7 +1,7 @@
 """OpenAPI Spec Differ for detecting API changes between versions."""
 
-from dataclasses import dataclass, field
-from typing import Any, Optional, Dict, List
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass
