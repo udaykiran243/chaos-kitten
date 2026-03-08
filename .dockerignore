@@ -19,6 +19,8 @@ coverage.xml
 *.cover
 *.log
 .pytest_cache/
+tests/
+chaos-kitten.yaml
 reports/
 node_modules/
 dist/
