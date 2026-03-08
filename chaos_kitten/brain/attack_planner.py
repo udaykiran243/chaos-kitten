@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Set, Union
 
 import yaml
+from chaos_kitten.exceptions import ChaosKittenParsingError, ChaosKittenError
 # Moving langchain imports to local scope to prevent crashes during pre-flight checks
 
 logger = logging.getLogger(__name__)
@@ -353,7 +354,8 @@ class AttackPlanner:
                             if re.search(tp, path):
                                 path_match = True
                                 break
-                        except re.error:
+                        except re.error as e:
+                            logger.warning(f"Regex error in path pattern '{tp}': {e}")
                             if tp in path:
                                 path_match = True
                                 break
@@ -602,7 +604,8 @@ class AttackPlanner:
             for status_code in status_codes:
                 try:
                     return int(status_code)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as e:
+                    logger.debug(f"Invalid status code '{status_code}': {e}")
                     continue
         return 500
 
@@ -818,7 +821,8 @@ class NaturalLanguagePlanner:
                     # Convert to float safely
                     try:
                         score_val: float = float(score)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as e:
+                        logger.debug(f"Invalid score value '{score}': {e}")
                         score_val = 0.0
                     logger.info(
                         f"[GOAL]   - {ep.get('method')} {ep.get('path')} "

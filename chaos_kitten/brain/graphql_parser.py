@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Tuple
 from urllib.parse import urlparse
 import httpx
+from chaos_kitten.exceptions import ChaosKittenParsingError, ChaosKittenError
 
 # Try to import graphql for SDL parsing
 try:
@@ -142,7 +143,7 @@ class GraphQLParser:
             The introspection result (dict with __schema key).
         """
         if not self.endpoint_url:
-            raise ValueError("No endpoint_url provided for introspection")
+            raise ChaosKittenParsingError("No endpoint_url provided for introspection")
 
         try:
             logger.info(f"Introspecting GraphQL endpoint: {self.endpoint_url}")
@@ -155,20 +156,20 @@ class GraphQLParser:
             data = response.json()
 
             if "errors" in data and data["errors"]:
-                raise ValueError(f"GraphQL Introspection returned errors: {data['errors']}")
+                raise ChaosKittenParsingError(f"GraphQL Introspection returned errors: {data['errors']}")
 
             if "data" not in data or "__schema" not in data["data"]:
-                raise ValueError("Invalid introspection response: missing __schema")
+                raise ChaosKittenParsingError("Invalid introspection response: missing __schema")
 
             self.schema = data["data"]
             return self.schema
 
         except httpx.RequestError as e:
             logger.error(f"Network error interacting with GraphQL endpoint: {e}")
-            raise
+            raise ChaosKittenParsingError(f"Network error during GraphQL introspection: {e}") from e
         except Exception as e:
             logger.error(f"Failed to introspect GraphQL endpoint: {e}")
-            raise
+            raise ChaosKittenParsingError(f"Failed to introspect GraphQL endpoint: {e}") from e
 
     def parse_schema(self) -> Dict[str, Any]:
         """Parse a local .graphql or .json schema file.
@@ -190,11 +191,11 @@ class GraphQLParser:
                 elif "__schema" in data:
                     self.schema = data
                 else:
-                    raise ValueError("JSON file does not appear to be a standard introspection result (missing __schema)")
+                    raise ChaosKittenParsingError("JSON file does not appear to be a standard introspection result (missing __schema)")
 
             elif self.schema_path.suffix in [".graphql", ".gql"]:
                 if not HAS_GRAPHQL_CORE:
-                    raise ImportError(
+                    raise ChaosKittenParsingError(
                         "graphql-core library is required to parse .graphql files. "
                         "Install it with 'pip install graphql-core'"
                     )
@@ -217,13 +218,13 @@ class GraphQLParser:
                 self.schema = introspection_result
 
             else:
-                raise ValueError(f"Unsupported file extension: {self.schema_path.suffix}")
+                raise ChaosKittenParsingError(f"Unsupported file extension: {self.schema_path.suffix}")
 
             return self.schema
 
         except Exception as e:
             logger.error(f"Failed to parse schema file: {e}")
-            raise
+            raise ChaosKittenParsingError(f"Failed to parse schema file: {e}") from e
 
     def get_queries(self) -> List[Dict[str, Any]]:
         """Extract all Query type fields with arguments."""
