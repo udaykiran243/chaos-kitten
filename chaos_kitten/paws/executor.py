@@ -118,7 +118,7 @@ class Executor:
         self._rate_lock: Optional[asyncio.Lock] = asyncio.Lock() if self.rate_limit > 0 else None
         return self
     
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         if self._client:
             await self._client.aclose()
