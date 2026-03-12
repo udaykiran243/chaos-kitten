@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, Union
 import yaml
 import os
+from chaos_kitten.exceptions import ChaosKittenConfigError, ChaosKittenError
 
 
 class Config:
@@ -34,7 +35,7 @@ class Config:
             ValueError: If configuration is invalid
         """
         if not self.config_path.exists():
-            raise FileNotFoundError(
+            raise ChaosKittenConfigError(
                 f"Configuration file not found: {self.config_path}\n"
                 "Run 'chaos-kitten init' to create one."
             )
@@ -46,7 +47,7 @@ class Config:
             self._config = {}
             
         if not isinstance(self._config, dict):
-            raise ValueError("Configuration root must be a mapping/object")
+            raise ChaosKittenConfigError("Configuration root must be a mapping/object")
         
         # Expand environment variables
         self._expand_env_vars(self._config)
@@ -74,18 +75,18 @@ class Config:
         required = ["target"]
         for field in required:
             if field not in self._config:
-                raise ValueError(f"Missing required configuration field: {field}")
+                raise ChaosKittenConfigError(f"Missing required configuration field: {field}")
         
         target = self._config.get("target", {})
         target_type = target.get("type", "rest")
         
         if target_type == "graphql":
             if "graphql_endpoint" not in target and "graphql_schema" not in target:
-                raise ValueError("GraphQL target requires either 'graphql_endpoint' or 'graphql_schema'")
+                raise ChaosKittenConfigError("GraphQL target requires either 'graphql_endpoint' or 'graphql_schema'")
         else:
             # Default to REST behavior
             if "base_url" not in target:
-                raise ValueError("Missing required field: target.base_url")
+                raise ChaosKittenConfigError("Missing required field: target.base_url")
 
         # --- MFA/TOTP Validation & Defaults ---
         auth = self._config.setdefault("auth", {})
@@ -97,13 +98,13 @@ class Config:
         if "max_rounds" in adaptive:
             max_rounds = adaptive["max_rounds"]
             if not isinstance(max_rounds, int) or max_rounds < 1 or max_rounds > 10:
-                raise ValueError("adaptive.max_rounds must be an integer between 1 and 10")
+                raise ChaosKittenConfigError("adaptive.max_rounds must be an integer between 1 and 10")
         
         # Validate state_machine config
         sm = self._config.get("state_machine", {})
         if "enabled" in sm:
             if not isinstance(sm["enabled"], bool):
-                raise ValueError("state_machine.enabled must be a boolean")
+                raise ChaosKittenConfigError("state_machine.enabled must be a boolean")
     
     @property
     def target(self) -> Dict[str, Any]:

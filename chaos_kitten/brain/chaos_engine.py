@@ -11,7 +11,7 @@ import random
 import string
 import time
 import math
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from chaos_kitten.paws.executor import Executor
@@ -29,10 +29,10 @@ class ChaosInput:
         chaos_value: Any,
         description: str,
     ) -> None:
-        self.field_name = field_name
-        self.original_type = original_type
-        self.chaos_value = chaos_value
-        self.description = description
+        self.field_name: str = field_name
+        self.original_type: str = original_type
+        self.chaos_value: Any = chaos_value
+        self.description: str = description
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -57,14 +57,14 @@ class AnomalyResult:
         response_body: str,
         severity: str = "medium",
     ) -> None:
-        self.anomaly_type = anomaly_type
-        self.endpoint = endpoint
-        self.method = method
-        self.chaos_input = chaos_input
-        self.status_code = status_code
-        self.response_time = response_time
-        self.response_body = response_body
-        self.severity = severity
+        self.anomaly_type: str = anomaly_type
+        self.endpoint: str = endpoint
+        self.method: str = method
+        self.chaos_input: ChaosInput = chaos_input
+        self.status_code: int = status_code
+        self.response_time: float = response_time
+        self.response_body: str = response_body
+        self.severity: str = severity
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -87,7 +87,7 @@ class ChaosGenerator:
     """
 
     # Chaos level determines how many mutations are generated per field
-    MUTATIONS_PER_LEVEL = {1: 2, 2: 4, 3: 6, 4: 8, 5: 12}
+    MUTATIONS_PER_LEVEL: Dict[int, int] = {1: 2, 2: 4, 3: 6, 4: 8, 5: 12}
 
     def __init__(self, chaos_level: int = 3) -> None:
         """Initialize the chaos generator.
@@ -95,7 +95,7 @@ class ChaosGenerator:
         Args:
             chaos_level: Intensity from 1 (gentle) to 5 (maximum carnage).
         """
-        self.chaos_level = max(1, min(5, chaos_level))
+        self.chaos_level: int = max(1, min(5, chaos_level))
 
     def generate_for_field(
         self, field_name: str, field_type: str
@@ -337,11 +337,11 @@ class ChaosGenerator:
         Returns:
             List of (payload_dict, description) tuples with missing fields.
         """
-        payloads = []
+        payloads: List[Tuple[Dict[str, Any], str]] = []
 
         # Remove each required field one at a time
         for field in required_fields:
-            payload = {f: "test_value" for f in fields if f != field}
+            payload: Dict[str, Any] = {f: "test_value" for f in fields if f != field}
             payloads.append((payload, "Missing required field: {}".format(field)))
 
         # Remove ALL fields
@@ -363,7 +363,7 @@ class ChaosGenerator:
         Returns:
             List of (headers_dict, description) tuples.
         """
-        headers_list = [
+        headers_list: List[Tuple[Dict[str, str], str]] = [
             ({}, "No Content-Type header"),
             ({"Content-Type": "text/xml"}, "XML Content-Type (potential XXE)"),
             ({"Content-Type": "application/xml"}, "XML Content-Type variant"),
@@ -422,7 +422,7 @@ class AnomalyDetector:
         self._baseline_mean = sum(response_times) / len(response_times)
 
         if len(response_times) > 1:
-            variance = sum(
+            variance: float = sum(
                 (t - self._baseline_mean) ** 2 for t in response_times
             ) / (len(response_times) - 1)
             self._baseline_std = math.sqrt(variance)
@@ -451,11 +451,11 @@ class AnomalyDetector:
         Returns:
             List of detected anomalies.
         """
-        anomalies = []
+        anomalies: List[AnomalyResult] = []
 
         # Check for 5xx server errors
         if status_code >= 500:
-            severity = "critical" if status_code == 500 else "high"
+            severity: str = "critical" if status_code == 500 else "high"
             anomalies.append(
                 AnomalyResult(
                     anomaly_type="server_error",
@@ -471,7 +471,7 @@ class AnomalyDetector:
 
         # Check for response time outlier (> 3 sigma from baseline)
         if self._baseline_std > 0:
-            threshold = self._baseline_mean + (3 * self._baseline_std)
+            threshold: float = self._baseline_mean + (3 * self._baseline_std)
             if response_time > threshold and response_time > 3 * self._baseline_mean:
                 anomalies.append(
                     AnomalyResult(
@@ -487,7 +487,7 @@ class AnomalyDetector:
                 )
 
         # Check for error messages that leak information
-        leak_patterns = [
+        leak_patterns: List[str] = [
             "stack trace",
             "traceback",
             "exception",
@@ -501,7 +501,7 @@ class AnomalyDetector:
             "file not found",
             "permission denied",
         ]
-        body_lower = response_body.lower()
+        body_lower: str = response_body.lower()
         for pattern in leak_patterns:
             if pattern.lower() in body_lower:
                 anomalies.append(
@@ -567,10 +567,10 @@ class ChaosEngine:
                       When provided, chaos tests send actual traffic to the target.
                       When None, falls back to simulated responses (legacy behavior).
         """
-        self.chaos_level = max(1, min(5, chaos_level))
-        self.generator = ChaosGenerator(chaos_level=self.chaos_level)
-        self.detector = AnomalyDetector()
-        self.executor = executor
+        self.chaos_level: int = max(1, min(5, chaos_level))
+        self.generator: ChaosGenerator = ChaosGenerator(chaos_level=self.chaos_level)
+        self.detector: AnomalyDetector = AnomalyDetector()
+        self.executor: Optional["Executor"] = executor
         self.findings: List[AnomalyResult] = []
 
     def generate_chaos_payloads(
@@ -591,18 +591,18 @@ class ChaosEngine:
         Returns:
             List of test case dicts with 'payload', 'headers', 'description'.
         """
-        test_cases = []
+        test_cases: List[Dict[str, Any]] = []
 
         # Generate per-field chaos inputs
         if fields:
             for field_name, field_type in fields.items():
-                chaos_inputs = self.generator.generate_for_field(
+                chaos_inputs: List[ChaosInput] = self.generator.generate_for_field(
                     field_name, field_type
                 )
                 for ci in chaos_inputs:
                     # Build a payload with the chaos value for this field
                     # and normal values for other fields
-                    payload = {}
+                    payload: Dict[str, Any] = {}
                     for f, _ in fields.items():
                         if f == field_name:
                             payload[f] = ci.chaos_value
@@ -624,7 +624,7 @@ class ChaosEngine:
 
         # Generate missing field cases
         if fields and required_fields:
-            missing_payloads = self.generator.generate_missing_fields_payload(
+            missing_payloads: List[Tuple[Dict[str, Any], str]] = self.generator.generate_missing_fields_payload(
                 list(fields.keys()), required_fields
             )
             for payload, desc in missing_payloads:
@@ -642,9 +642,9 @@ class ChaosEngine:
                 )
 
         # Generate header chaos
-        header_cases = self.generator.generate_header_chaos()
+        header_cases: List[Tuple[Dict[str, str], str]] = self.generator.generate_header_chaos()
         for headers, desc in header_cases:
-            sample_payload = {}
+            sample_payload: Dict[str, Any] = {}
             if fields:
                 sample_payload = {f: "test_value" for f in fields}
 
@@ -689,14 +689,14 @@ class ChaosEngine:
         import asyncio
 
         # Prefer the executor supplied to this call; fall back to init-time one
-        active_executor = executor or self.executor
-        is_live = active_executor is not None
+        active_executor: Optional["Executor"] = executor or self.executor
+        is_live: bool = active_executor is not None
 
         print("\n🌪️  [CHAOS MODE] Starting chaos testing...")
         print("   Chaos Level: {} / 5".format(self.chaos_level))
         print("   Mode: {}".format("LIVE (real HTTP)" if is_live else "SIMULATED"))
 
-        level_labels = {
+        level_labels: Dict[int, str] = {
             1: "Gentle (basic type mismatches)",
             2: "Moderate (boundary values + nulls)",
             3: "Aggressive (Unicode + control chars + large inputs)",
@@ -715,16 +715,16 @@ class ChaosEngine:
         else:
             self.detector.set_baseline([0.1, 0.15, 0.12, 0.11, 0.13])
 
-        total_tests = 0
-        total_anomalies = 0
+        total_tests: int = 0
+        total_anomalies: int = 0
 
         for ep in endpoints:
-            endpoint_path = ep.get("path", "/unknown")
-            method = ep.get("method", "POST")
-            fields = ep.get("fields", {})
-            required = ep.get("required_fields", [])
+            endpoint_path: str = ep.get("path", "/unknown")
+            method: str = ep.get("method", "POST")
+            fields: Dict[str, Any] = ep.get("fields", {})
+            required: List[str] = ep.get("required_fields", [])
 
-            test_cases = self.generate_chaos_payloads(
+            test_cases: List[Dict[str, Any]] = self.generate_chaos_payloads(
                 endpoint_path, method, fields, required
             )
 
@@ -736,7 +736,7 @@ class ChaosEngine:
                 total_tests += 1
 
                 if is_live:
-                    result = await self._execute_real_chaos_request(
+                    result: Optional[List[AnomalyResult]] = await self._execute_real_chaos_request(
                         active_executor, tc
                     )
                 else:
@@ -775,17 +775,17 @@ class ChaosEngine:
         AnomalyDetector has realistic timing data for outlier detection.
         """
         baseline_times: List[float] = []
-        sample_ep = endpoints[0] if endpoints else {"path": "/", "method": "GET"}
-        path = sample_ep.get("path", "/")
-        method = sample_ep.get("method", "GET")
+        sample_ep: Dict[str, Any] = endpoints[0] if endpoints else {"path": "/", "method": "GET"}
+        path: str = sample_ep.get("path", "/")
+        method: str = sample_ep.get("method", "GET")
 
         for _ in range(5):
-            resp = await executor.execute_attack(
+            resp: Dict[str, Any] = await executor.execute_attack(
                 method=method,
                 path=path,
                 payload=None,
             )
-            elapsed_s = resp.get("elapsed_ms", 100.0) / 1000.0
+            elapsed_s: float = resp.get("elapsed_ms", 100.0) / 1000.0
             if not resp.get("error"):
                 baseline_times.append(elapsed_s)
 
@@ -813,11 +813,11 @@ class ChaosEngine:
         chaos_input: ChaosInput = test_case["chaos_input"]
         endpoint: str = test_case["endpoint"]
         method: str = test_case["method"]
-        payload = test_case.get("payload")
-        headers = test_case.get("headers")
+        payload: Any = test_case.get("payload")
+        headers: Optional[Dict[str, str]] = test_case.get("headers")
 
         try:
-            resp = await executor.execute_attack(
+            resp: Dict[str, Any] = await executor.execute_attack(
                 method=method,
                 path=endpoint,
                 payload=payload,
@@ -835,7 +835,7 @@ class ChaosEngine:
             )]
 
         # Handle connection-level errors reported by the executor
-        error = resp.get("error")
+        error: Optional[str] = resp.get("error")
         if error:
             return [self.detector.detect_connection_error(
                 endpoint=endpoint,
@@ -844,11 +844,11 @@ class ChaosEngine:
                 error_message=error,
             )]
 
-        status_code = resp.get("status_code", 0)
-        elapsed_s = resp.get("elapsed_ms", 0.0) / 1000.0
-        body = resp.get("body", "")
+        status_code: int = resp.get("status_code", 0)
+        elapsed_s: float = resp.get("elapsed_ms", 0.0) / 1000.0
+        body: str = resp.get("body", "")
 
-        anomalies = self.detector.detect_anomalies(
+        anomalies: List[AnomalyResult] = self.detector.detect_anomalies(
             status_code=status_code,
             response_time=elapsed_s,
             response_body=body,
@@ -869,12 +869,12 @@ class ChaosEngine:
         """
         import random
 
-        chaos_input = test_case["chaos_input"]
-        endpoint = test_case["endpoint"]
-        method = test_case["method"]
+        chaos_input: ChaosInput = test_case["chaos_input"]
+        endpoint: str = test_case["endpoint"]
+        method: str = test_case["method"]
 
         # Simulate different server behaviors based on chaos input
-        roll = random.random()
+        roll: float = random.random()
 
         if chaos_input.description in [
             "Null value",
@@ -969,8 +969,8 @@ class ChaosEngine:
 
     def get_summary(self) -> Dict[str, Any]:
         """Return a summary of chaos testing results."""
-        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-        type_counts = {}  # type: Dict[str, int]
+        severity_counts: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        type_counts: Dict[str, int] = {}
 
         for finding in self.findings:
             severity_counts[finding.severity] = (

@@ -1,11 +1,11 @@
-from typing import Dict, List
+from typing import Dict, List, Any
 
-def analyze_cors(headers: Dict[str, str]) -> List[dict]:
-    findings = []
+def analyze_cors(headers: Dict[str, str]) -> List[Dict[str, Any]]:
+    findings: List[Dict[str, Any]] = []
 
-    aco = headers.get("access-control-allow-origin", "")
-    acc = headers.get("access-control-allow-credentials", "")
-    acm = headers.get("access-control-allow-methods", "")
+    aco: str = headers.get("access-control-allow-origin", "")
+    acc: str = headers.get("access-control-allow-credentials", "")
+    acm: str = headers.get("access-control-allow-methods", "")
 
     # Wildcard origin
     if aco.strip() == "*":
@@ -19,11 +19,11 @@ def analyze_cors(headers: Dict[str, str]) -> List[dict]:
         findings.append({
             "issue": "Credentialed CORS allowed",
             "severity": "critical"
-    })
+        })
 
     # Methods exposed
-    dangerous = ["PUT", "DELETE", "PATCH"]
-    allowed_methods = [m.strip().upper() for m in acm.split(",")]
+    dangerous: List[str] = ["PUT", "DELETE", "PATCH"]
+    allowed_methods: List[str] = [m.strip().upper() for m in acm.split(",")]
     if any(m in allowed_methods for m in dangerous):
         findings.append({
             "issue": "Dangerous methods exposed via CORS",

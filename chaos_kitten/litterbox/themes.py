@@ -6,16 +6,17 @@ of the generated HTML report.  Users can pass a preset name (``"dark"``,
 individual values.
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Mapping
 import copy
 import logging
+from chaos_kitten.exceptions import ChaosKittenReportingError, ChaosKittenError
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Default dark theme  (matches the original report.html `:root` values)
 # ---------------------------------------------------------------------------
-DEFAULT_THEME = {
+DEFAULT_THEME: Dict[str, Any] = {
     "name": "dark",
     "css_vars": {
         "--bg-dark": "#0d1117",
@@ -38,7 +39,7 @@ DEFAULT_THEME = {
 # ---------------------------------------------------------------------------
 # Light theme
 # ---------------------------------------------------------------------------
-LIGHT_THEME = {
+LIGHT_THEME: Dict[str, Any] = {
     "name": "light",
     "css_vars": {
         "--bg-dark": "#f8f9fa",
@@ -61,7 +62,7 @@ LIGHT_THEME = {
 # ---------------------------------------------------------------------------
 # Corporate theme  (muted blue-grey)
 # ---------------------------------------------------------------------------
-CORPORATE_THEME = {
+CORPORATE_THEME: Dict[str, Any] = {
     "name": "corporate",
     "css_vars": {
         "--bg-dark": "#1e293b",
@@ -81,7 +82,7 @@ CORPORATE_THEME = {
     "company_name": "",
 }
 
-_PRESETS = {
+_PRESETS: Dict[str, Dict[str, Any]] = {
     "dark": DEFAULT_THEME,
     "light": LIGHT_THEME,
     "corporate": CORPORATE_THEME,
@@ -110,7 +111,7 @@ def get_theme(
         return copy.deepcopy(DEFAULT_THEME)
 
     if isinstance(theme_config, str):
-        preset = _PRESETS.get(theme_config.lower())
+        preset: Optional[Dict[str, Any]] = _PRESETS.get(theme_config.lower())
         if preset is None:
             logger.warning(
                 "Unknown theme preset '%s', falling back to dark theme.",
@@ -127,8 +128,8 @@ def get_theme(
         return copy.deepcopy(DEFAULT_THEME)
 
     # Use the named base if provided, otherwise default
-    base_name = theme_config.get("name", "dark")
-    base = copy.deepcopy(_PRESETS.get(base_name, DEFAULT_THEME))
+    base_name: str = theme_config.get("name") or "dark"
+    base: Dict[str, Any] = copy.deepcopy(_PRESETS.get(base_name, DEFAULT_THEME))
 
     # Merge top-level scalar keys
     for key in ("logo_url", "logo_text", "company_name", "name"):
@@ -136,12 +137,12 @@ def get_theme(
             base[key] = theme_config[key]
 
     # Merge CSS variable overrides
-    user_css = theme_config.get("css_vars", {})
+    user_css: Any = theme_config.get("css_vars", {})
     if isinstance(user_css, dict):
         base["css_vars"].update(user_css)
 
     # Also allow shorthand keys without the -- prefix mapping
-    _SHORTHAND = {
+    _SHORTHAND: Dict[str, str] = {
         "primary_color": "--accent-purple",
         "secondary_color": "--accent-pink",
         "bg_color": "--bg-dark",

@@ -6,9 +6,10 @@ based on error patterns, timing anomalies, data leakage, and status codes.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Pattern, Union
 import re
 import logging
+from chaos_kitten.exceptions import ChaosKittenNetworkError, ChaosKittenError
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,12 @@ class ResponseAnalyzer:
 
     def __init__(self) -> None:
         # Pre-compile regex patterns for efficiency
-        self.error_patterns = self._load_error_patterns()
-        self.sensitive_patterns = self._load_sensitive_patterns()
+        self.error_patterns: Dict[str, List[Pattern]] = self._load_error_patterns()
+        self.sensitive_patterns: Dict[str, List[Pattern]] = self._load_sensitive_patterns()
 
-    def _load_error_patterns(self) -> Dict[str, List[re.Pattern]]:
+    def _load_error_patterns(self) -> Dict[str, List[Pattern]]:
         """Load built-in error patterns."""
-        patterns = {
+        patterns: Dict[str, List[str]] = {
             "SQL Injection": [
                 r"SQL syntax.*MySQL",
                 r"Warning.*mysql_",
@@ -86,23 +87,23 @@ class ResponseAnalyzer:
                 r"TypeError:",
                 r"ValueError:",
                 r"SyntaxError:",
-                r"at [\w\.]+\(", # Java/C# stack traces often look like "at Namespace.Class.Method("
+                r"at [\w\.]+\\(", # Java/C# stack traces often look like "at Namespace.Class.Method("
             ]
         }
         
-        compiled = {}
+        compiled: Dict[str, List[Pattern]] = {}
         for category, regex_list in patterns.items():
             compiled[category] = [re.compile(p, re.IGNORECASE) for p in regex_list]
         return compiled
 
-    def _load_sensitive_patterns(self) -> Dict[str, List[re.Pattern]]:
+    def _load_sensitive_patterns(self) -> Dict[str, List[Pattern]]:
         """Load patterns for data leakage."""
-        patterns = {
+        patterns: Dict[str, List[str]] = {
             "Path Disclosure": [
                 r"(?:[a-zA-Z]:)?\\[a-zA-Z0-9_\-\\]+\\\w+",  # Windows path
-                r"(?<!\w)/var/www/\w+",  # Common Linux webroot
-                r"(?<!\w)/home/\w+",
-                r"(?<!\w)/etc/passwd",
+                r"(?!\w)/var/www/\w+",  # Common Linux webroot
+                r"(?!\w)/home/\w+",
+                r"(?!\w)/etc/passwd",
             ],
             "Internal IP": [
                 r"192\.168\.\d{1,3}\.\d{1,3}",
@@ -110,12 +111,12 @@ class ResponseAnalyzer:
                 r"172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}",
             ]
         }
-        compiled = {}
+        compiled: Dict[str, List[Pattern]] = {}
         for category, regex_list in patterns.items():
             compiled[category] = [re.compile(p) for p in regex_list]
         return compiled
 
-    def analyze(self, response: dict, attack_profile: dict, endpoint: str = "", payload: str = "") -> Optional[Finding]:
+    def analyze(self, response: Dict[str, Any], attack_profile: Dict[str, Any], endpoint: str = "", payload: str = "") -> Optional[Finding]:
         """Main analysis method - checks all indicators.
         
         Args:
@@ -127,14 +128,14 @@ class ResponseAnalyzer:
         Returns:
             A Finding object if a vulnerability is detected, else None.
         """
-        body = response.get("body", "")
-        status_code = response.get("status_code", 0)
-        elapsed_ms = response.get("elapsed_ms", 0.0)
+        body: str = response.get("body", "")
+        status_code: int = response.get("status_code", 0)
+        elapsed_ms: float = response.get("elapsed_ms", 0.0)
         
-        success_indicators = attack_profile.get("success_indicators", {})
+        success_indicators: Dict[str, Any] = attack_profile.get("success_indicators", {})
         
         # 1. Custom Indicators (High Confidence) via Attack Profile
-        finding = self._check_custom_indicators(response, success_indicators)
+        finding: Optional[Finding] = self._check_custom_indicators(response, success_indicators)
         if finding:
             finding.endpoint = endpoint
             finding.payload = payload
@@ -145,18 +146,19 @@ class ResponseAnalyzer:
                 finding.recommendation = attack_profile.get("remediation", "Check input sanitization.")
             
             # Map string severity to Enum if needed
-            profile_severity = attack_profile.get("severity", "medium").lower()
+            profile_severity: str = attack_profile.get("severity", "medium").lower()
             try:
                 finding.severity = Severity(profile_severity)
-            except ValueError:
+            except ValueError as e:
+                logger.debug(f"Invalid severity '{profile_severity}': {e}")
                 finding.severity = Severity.MEDIUM
                 
             return finding
             
         # 2. Generic Error Patterns (Medium Confidence)
-        errors = self.check_error_patterns(body)
+        errors: List[str] = self.check_error_patterns(body)
         if errors:
-            issue_type = errors[0].split(":")[0]  # rough category
+            issue_type: str = errors[0].split(":")[0]  # rough category
             return Finding(
                 vulnerability_type=f"Potential {issue_type} (Error Leak)",
                 severity=Severity.MEDIUM,
@@ -168,7 +170,7 @@ class ResponseAnalyzer:
             )
 
         # 3. Data Leakage (Medium Confidence)
-        leaks = self.check_data_leakage(body)
+        leaks: List[str] = self.check_data_leakage(body)
         if leaks:
             return Finding(
                 vulnerability_type="Information Disclosure",
@@ -181,7 +183,7 @@ class ResponseAnalyzer:
             )
             
         # 4. Cache Poisoning Detection (High/Medium Confidence)
-        cp_finding = self.check_cache_poisoning(response, payload)
+        cp_finding: Optional[Finding] = self.check_cache_poisoning(response, payload)
         if cp_finding:
              cp_finding.endpoint = endpoint
              cp_finding.payload = payload
@@ -194,7 +196,7 @@ class ResponseAnalyzer:
         return None
 
 
-    def check_cache_poisoning(self, response: dict, payload: str) -> Optional[Finding]:
+    def check_cache_poisoning(self, response: Dict[str, Any], payload: str) -> Optional[Finding]:
         """Detect potential cache poisoning vulnerabilities.
         
         Checks for:
@@ -204,43 +206,43 @@ class ResponseAnalyzer:
         if not payload:
             return None
             
-        headers = response.get("headers", {})
+        headers: Dict[str, Any] = response.get("headers", {})
         # Normalize headers to lowercase
-        headers_lower = {k.lower(): v for k, v in headers.items()}
+        headers_lower: Dict[str, str] = {k.lower(): v for k, v in headers.items()}
         
-        cache_control = headers_lower.get("cache-control", "").lower()
-        body = response.get("body", "")
+        cache_control: str = headers_lower.get("cache-control", "").lower()
+        body: str = response.get("body", "")
 
         # Key indicators for caching
         # Parse directives properly 
-        is_cacheable = False
+        is_cacheable: bool = False
         if cache_control:
-            directives = [d.strip() for d in cache_control.split(',')]
+            directives: List[str] = [d.strip() for d in cache_control.split(',')]
             is_cacheable = any(d == 'public' or (d.startswith('max-age=') and d != 'max-age=0') or (d.startswith('s-maxage=') and d != 's-maxage=0') for d in directives)
             is_cacheable = is_cacheable and 'no-store' not in directives
 
-        reflected_in_header = False
-        reflected_header_name = ""
+        reflected_in_header: bool = False
+        reflected_header_name: str = ""
         for h_name, h_val in headers.items():
             if payload in str(h_val):
                 reflected_in_header = True
                 reflected_header_name = h_name
                 break
         
-        reflected_in_body = payload in body
+        reflected_in_body: bool = payload in body
 
         if (reflected_in_header or reflected_in_body) and is_cacheable:
              # Check for Vary header
-             vary_header = headers_lower.get("vary", "")
-             vary_list = [v.strip().lower() for v in vary_header.split(',')]
+             vary_header: str = headers_lower.get("vary", "")
+             vary_list: List[str] = [v.strip().lower() for v in vary_header.split(',')]
              
              # If reflected in header, check if that header is in Vary
              if reflected_in_header:
                  if reflected_header_name.lower() in vary_list:
                      return None # Safe because of Vary header
              
-             confidence = 0.9 if reflected_in_header else 0.6 
-             evidence = f"Payload '{payload}' reflected in {'header (' + reflected_header_name + ')' if reflected_in_header else 'body'} and response is CACHEABLE."
+             confidence: float = 0.9 if reflected_in_header else 0.6 
+             evidence: str = f"Payload '{payload}' reflected in {'header (' + reflected_header_name + ')' if reflected_in_header else 'body'} and response is CACHEABLE."
              if reflected_in_header and reflected_header_name.lower() not in vary_list:
                  evidence += f" Header '{reflected_header_name}' missing from Vary."
                  
@@ -254,7 +256,7 @@ class ResponseAnalyzer:
         
         return None
 
-    def _check_custom_indicators(self, response: dict, indicators: dict) -> Optional[Finding]:
+    def _check_custom_indicators(self, response: Dict[str, Any], indicators: Dict[str, Any]) -> Optional[Finding]:
         """Check against success indicators defined in the attack profile.
         
         Note: The `response_time_gt` indicator is expected to be in seconds.
@@ -262,9 +264,9 @@ class ResponseAnalyzer:
         if not indicators:
             return None
             
-        body = response.get("body", "")
-        status_code = response.get("status_code")
-        elapsed_s = response.get("elapsed_ms", 0) / 1000.0  # convert to seconds
+        body: str = response.get("body", "")
+        status_code: Optional[int] = response.get("status_code")
+        elapsed_s: float = response.get("elapsed_ms", 0) / 1000.0  # convert to seconds
 
         # Check response_contains
         if "response_contains" in indicators:
@@ -278,7 +280,7 @@ class ResponseAnalyzer:
 
         # Check status_codes
         if "status_codes" in indicators:
-            expected_codes = indicators["status_codes"]
+            expected_codes: List[int] = indicators["status_codes"]
             if status_code in expected_codes:
                 # Be careful: 200/500 might be common.
                 # If specific list is provided, we assume it's a signal.
@@ -290,7 +292,7 @@ class ResponseAnalyzer:
         
         # Check response_time_gt
         if "response_time_gt" in indicators:
-            limit = indicators["response_time_gt"]
+            limit: float = indicators["response_time_gt"]
             if elapsed_s > limit:
                  return Finding(
                     vulnerability_type="",
@@ -302,7 +304,7 @@ class ResponseAnalyzer:
 
     def check_error_patterns(self, body: str) -> List[str]:
         """Detect error messages that reveal vulnerabilities."""
-        detected = []
+        detected: List[str] = []
         for category, patterns in self.error_patterns.items():
             for regex in patterns:
                 match = regex.search(body)
@@ -325,7 +327,7 @@ class ResponseAnalyzer:
 
     def check_data_leakage(self, body: str) -> List[str]:
         """Detect sensitive data in responses."""
-        detected = []
+        detected: List[str] = []
         for category, patterns in self.sensitive_patterns.items():
             for regex in patterns:
                 match = regex.search(body)

@@ -7,9 +7,10 @@ import time
 import random
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, List, Tuple
 import httpx
 import urllib.parse
+from chaos_kitten.exceptions import ChaosKittenNetworkError, ChaosKittenError
 
 try:
     import pyotp
@@ -45,6 +46,7 @@ class Executor:
         totp_field: str = "code",
         enable_logging: bool = False,
         log_file: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         """Initialize the executor.
         
@@ -60,26 +62,27 @@ class Executor:
             totp_field: JSON field name for TOTP code
             enable_logging: Enable request/response logging
             log_file: Optional file path to save logs
+            client: Optional existing httpx.AsyncClient instance
         
         Raises:
             ValueError: If auth_type is not supported.
         """
-        self.base_url = base_url.rstrip("/")
+        self.base_url: str = base_url.rstrip("/")
         
         if auth_type not in ["bearer", "basic", "none"]:
             raise ValueError(f"Unsupported auth_type: {auth_type}. Supported types: bearer, basic, none")
             
-        self.auth_type = auth_type
-        self.auth_token = auth_token
-        self.rate_limit = rate_limit
-        self.timeout = timeout
+        self.auth_type: str = auth_type
+        self.auth_token: Optional[str] = auth_token
+        self.rate_limit: int = rate_limit
+        self.timeout: int = timeout
         
         # Retry configuration
-        self.retry_config = retry_config or {}
-        self.max_retries = self.retry_config.get("max_retries", 3)
-        self.base_backoff = self.retry_config.get("base_backoff", 1.0)
-        self.max_backoff = self.retry_config.get("max_backoff", 60.0)
-        self.jitter = self.retry_config.get("jitter", True)
+        self.retry_config: Dict[str, Any] = retry_config or {}
+        self.max_retries: int = self.retry_config.get("max_retries", 3)
+        self.base_backoff: float = self.retry_config.get("base_backoff", 1.0)
+        self.max_backoff: float = self.retry_config.get("max_backoff", 60.0)
+        self.jitter: bool = self.retry_config.get("jitter", True)
         
         # Validation
         if not isinstance(self.max_retries, int) or self.max_retries < 0:
@@ -87,34 +90,35 @@ class Executor:
         if self.base_backoff < 0 or self.base_backoff > self.max_backoff:
             raise ValueError(f"Invalid backoff: base={self.base_backoff}, max={self.max_backoff}")
         
-        self.enable_logging = enable_logging
-        self.log_file = log_file
+        self.enable_logging: bool = enable_logging
+        self.log_file: Optional[str] = log_file
 
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: Optional[httpx.AsyncClient] = client
         self._rate_lock: Optional[asyncio.Lock] = None
         self._last_request_time: float = 0.0
-        self.totp_secret = totp_secret
-        self.totp_endpoint = totp_endpoint
-        self.totp_field = totp_field
+        self.totp_secret: Optional[str] = totp_secret
+        self.totp_endpoint: Optional[str] = totp_endpoint
+        self.totp_field: str = totp_field
         
         # Set up logging
         self._setup_logging()
     
     async def __aenter__(self) -> "Executor":
         """Context manager entry."""
-        self._client = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=self.timeout,
-            headers=self._build_headers(),
-        )
+        if not self._client:
+            self._client: httpx.AsyncClient = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout,
+                headers=self._build_headers(),
+            )
         
         await self._perform_mfa_auth()
         
         # Initialize rate limiter lock
-        self._rate_lock = asyncio.Lock() if self.rate_limit > 0 else None
+        self._rate_lock: Optional[asyncio.Lock] = asyncio.Lock() if self.rate_limit > 0 else None
         return self
     
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         if self._client:
             await self._client.aclose()
@@ -127,7 +131,7 @@ class Executor:
     
     def _build_headers(self) -> Dict[str, str]:
         """Build request headers including authentication."""
-        headers = {"User-Agent": "ChaosKitten/0.1.0"}
+        headers: Dict[str, str] = {"User-Agent": "ChaosKitten/0.1.0"}
         
         if self.auth_type in ("bearer", "oauth") and self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
@@ -159,30 +163,24 @@ class Executor:
             Response data including status, body, and timing
         """
         if not self._client:
-            return {
-                "status_code": 0,
-                "headers": {},
-                "body": "",
-                "elapsed_ms": 0.0,
-                "error": "Client not initialized. Use 'async with Executor(...)' pattern.",
-            }
+            raise RuntimeError("Executor not initialized. Use 'async with Executor(...)' pattern to properly initialize the HTTP client.")
         
-        method = method.upper()
+        method: str = method.upper()
         
         # Merge additional headers
-        request_headers = self._client.headers.copy()
+        request_headers: Dict[str, str] = self._client.headers.copy()
         if headers:
             request_headers.update(headers)
 
-        last_result = {}
+        last_result: Dict[str, Any] = {}
         
         for attempt in range(self.max_retries + 1):
             # Apply rate limiting
             await self._apply_rate_limit()
 
-            start_time = time.perf_counter()
-            response = None
-            error_msg = None
+            start_time: float = time.perf_counter()
+            response: Optional[httpx.Response] = None
+            error_msg: Optional[str] = None
             
             # Log request (timestamp created inside if logging enabled)
             self._log_request(
@@ -208,7 +206,7 @@ class Executor:
                                 "GraphQL queries are typically sent via POST, "
                                 "but '%s' was requested for %s", method, path
                             )
-                        json_body = {"query": graphql_query}
+                        json_body: Dict[str, Any] = {"query": graphql_query}
                         if payload:
                             json_body["variables"] = payload
                         
@@ -256,7 +254,7 @@ class Executor:
                         "error": f"Unsupported HTTP method: {method}",
                     }
 
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                elapsed_ms: float = (time.perf_counter() - start_time) * 1000
                 
                 last_result = {
                     "status_code": response.status_code,
@@ -286,8 +284,8 @@ class Executor:
                 return last_result
                 
             except httpx.TimeoutException as e:
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-                error_msg = f"Request timeout: {str(e)}"
+                elapsed_ms: float = (time.perf_counter() - start_time) * 1000
+                error_msg: str = f"Request timeout: {str(e)}"
                 logger.warning(f"Timeout executing {method} {path}: {e}")
                 last_result = {
                     "status_code": 0,
@@ -301,9 +299,9 @@ class Executor:
                 self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
                 return last_result
 
-            except (httpx.ConnectError, httpx.HTTPError) as e:
-                 elapsed_ms = (time.perf_counter() - start_time) * 1000
-                 error_msg = f"HTTP/Connection error: {str(e)}"
+            except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
+                 elapsed_ms: float = (time.perf_counter() - start_time) * 1000
+                 error_msg: str = f"HTTP/Connection error: {str(e)}"
                  logger.warning(f"HTTP error executing {method} {path}: {e}")
                  last_result = {
                      "status_code": 0,
@@ -316,8 +314,8 @@ class Executor:
                  return last_result
                  
             except Exception as e:
-                 elapsed_ms = (time.perf_counter() - start_time) * 1000
-                 error_msg = f"Unexpected error: {str(e)}"
+                 elapsed_ms: float = (time.perf_counter() - start_time) * 1000
+                 error_msg: str = f"Unexpected error: {str(e)}"
                  logger.warning(f"Unexpected error executing {method} {path}: {e}")
                  self._log_response(status_code=0, elapsed_ms=elapsed_ms, body="", error=error_msg)
                  return {
@@ -335,18 +333,18 @@ class Executor:
         if response and "Retry-After" in response.headers:
             try:
                 # Retry-After can be seconds or a date. We handle seconds for now or simple int.
-                header_val = response.headers["Retry-After"]
+                header_val: str = response.headers["Retry-After"]
                 try:
-                    wait_time = float(header_val)
+                    wait_time: float = float(header_val)
                 except ValueError:
                     # Try to parse as HTTP-date format (RFC 1123)
                     try:
-                        parsed_date = parsedate_to_datetime(header_val)
-                        delta = (parsed_date - datetime.now(timezone.utc)).total_seconds()
-                        wait_time = max(0, delta)
+                        parsed_date: datetime = parsedate_to_datetime(header_val)
+                        delta: float = (parsed_date - datetime.now(timezone.utc)).total_seconds()
+                        wait_time: float = max(0, delta)
                     except (TypeError, ValueError):
                         # Fallback to default backoff if date parsing fails
-                        wait_time = self.base_backoff
+                        wait_time: float = self.base_backoff
 
                 logger.info(f"Rate limited. Waiting {wait_time}s as per Retry-After header.")
                 await asyncio.sleep(wait_time)
@@ -355,7 +353,7 @@ class Executor:
                 pass # Fallback to exponential backoff
 
         # Exponential backoff: base * 2^attempt
-        backoff = min(self.max_backoff, self.base_backoff * (2 ** attempt))
+        backoff: float = min(self.max_backoff, self.base_backoff * (2 ** attempt))
         
         if self.jitter:
             # Jitter: randomized between 0.5 * backoff and 1.5 * backoff
@@ -376,12 +374,12 @@ class Executor:
         if not self._rate_lock:
             return
 
-        min_interval = 1.0 / self.rate_limit if self.rate_limit > 0 else 0
+        min_interval: float = 1.0 / self.rate_limit if self.rate_limit > 0 else 0
 
         async with self._rate_lock:
             # Calculate how long to wait before this request may proceed
-            now = time.perf_counter()
-            elapsed = now - self._last_request_time
+            now: float = time.perf_counter()
+            elapsed: float = now - self._last_request_time
             if elapsed < min_interval:
                 await asyncio.sleep(min_interval - elapsed)
 
@@ -391,19 +389,19 @@ class Executor:
 
     def _setup_logging(self) -> None:
         """Setup request/response logging."""
-        self._logger = logging.getLogger(f"{__name__}.traffic.{id(self)}")
+        self._logger: logging.Logger = logging.getLogger(f"{__name__}.traffic.{id(self)}")
         self._logger.setLevel(logging.INFO)
         
         # Suppress httpx info logs to prevent leaking sensitive data or double logging
-        httpx_logger = logging.getLogger("httpx")
+        httpx_logger: logging.Logger = logging.getLogger("httpx")
         httpx_logger.setLevel(logging.WARNING)
         httpx_logger.propagate = False
         
         if self.enable_logging and self.log_file and not self._logger.handlers:
-            formatter = logging.Formatter(
+            formatter: logging.Formatter = logging.Formatter(
                 '%(asctime)s - %(levelname)s - %(message)s'
             )
-            file_handler = logging.FileHandler(self.log_file)
+            file_handler: logging.FileHandler = logging.FileHandler(self.log_file)
             file_handler.setFormatter(formatter)
             self._logger.addHandler(file_handler)
 
@@ -413,7 +411,7 @@ class Executor:
             return
 
         # Redact Headers
-        safe_headers = dict(headers)
+        safe_headers: Dict[str, str] = dict(headers)
         for key in safe_headers:
             if key.lower() in ("authorization", "x-api-key", "cookie"):
                 safe_headers[key] = "[REDACTED]"
@@ -424,12 +422,12 @@ class Executor:
         # But expected url in logs is full url with params.
         # Wait, self.base_url + path. If path has query params, we need to cleanse.
         
-        full_url = f"{self.base_url}{path}"
+        full_url: str = f"{self.base_url}{path}"
         try:
-             parsed = urllib.parse.urlparse(full_url)
-             qs = urllib.parse.parse_qs(parsed.query)
-             sensitive_params = ["api_key", "token", "password", "secret", "client_secret"]
-             changed = False
+             parsed: urllib.parse.ParseResult = urllib.parse.urlparse(full_url)
+             qs: Dict[str, List[str]] = urllib.parse.parse_qs(parsed.query)
+             sensitive_params: List[str] = ["api_key", "token", "password", "secret", "client_secret"]
+             changed: bool = False
              for k in qs:
                  if any(s in k.lower() for s in sensitive_params):
                      qs[k] = ["[REDACTED]"]
@@ -438,7 +436,7 @@ class Executor:
              if changed:
                  # Reconstruct query string
                  # parse_qs checks returns lists. urlencode handles it.
-                 new_query = urllib.parse.urlencode(qs, doseq=True)
+                 new_query: str = urllib.parse.urlencode(qs, doseq=True)
                  # Revert encoding for the redaction marker to keep logs readable
                  new_query = new_query.replace("%5BREDACTED%5D", "[REDACTED]")
                  full_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
@@ -446,7 +444,7 @@ class Executor:
              pass # Fail safe
 
         # Truncate Payload
-        safe_payload = str(payload)
+        safe_payload: str = str(payload)
         if len(safe_payload) > 500:
             safe_payload = safe_payload[:500] + "... [truncated]"
 
@@ -462,7 +460,7 @@ class Executor:
             return
             
         # Sanitize body to prevent leaking secrets/huge logs
-        body_safe = body[:200] + "..." if len(body) > 200 else body
+        body_safe: str = body[:200] + "..." if len(body) > 200 else body
 
         if error:
             self._logger.error(
@@ -490,12 +488,12 @@ class Executor:
             return
 
         try:
-            totp = pyotp.TOTP(self.totp_secret)
-            code = totp.now()
+            totp: pyotp.TOTP = pyotp.TOTP(self.totp_secret)
+            code: str = totp.now()
             
             logger.info(f"Authenticating with MFA endpoint: {self.totp_endpoint}")
             
-            response = await self._client.post(
+            response: httpx.Response = await self._client.post(
                 self.totp_endpoint,
                 json={self.totp_field: code},
                 headers=self._build_headers()
@@ -507,9 +505,9 @@ class Executor:
                 # For now, we assume it sets a session cookie which httpx client handles
                 logger.info("MFA Authentication successful")
                 
-                data = response.json()
+                data: Dict[str, Any] = response.json()
                 if "token" in data:
-                    self.auth_token = data["token"]
+                    self.auth_token: str = data["token"]
                     # Re-configure client default headers with new token
                     self._client.headers.update(self._build_headers())
             else:

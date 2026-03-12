@@ -1,7 +1,7 @@
 """Security Report Generator."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Mapping, TextIO, Set
 from datetime import datetime
 import json
 import logging
@@ -10,13 +10,14 @@ from xml.dom import minidom
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound, TemplateError
 from chaos_kitten.litterbox.themes import get_theme
 from chaos_kitten import __version__
+from chaos_kitten.exceptions import ChaosKittenReportingError, ChaosKittenError
 
-HTML = None
 try:
     from weasyprint import HTML
     WEASYPRINT_AVAILABLE = True
 except ImportError:
     WEASYPRINT_AVAILABLE = False
+    HTML = None
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +56,11 @@ class Reporter:
                 Can be a preset name ("dark", "light", "corporate"),
                 a dict of overrides, or None for the default dark theme.
         """
-        self.output_path = Path(output_path)
-        self.output_format = output_format
-        self.include_poc = include_poc
-        self.include_remediation = include_remediation
-        self.theme = get_theme(theme_config)
+        self.output_path: Path = Path(output_path)
+        self.output_format: str = output_format
+        self.include_poc: bool = include_poc
+        self.include_remediation: bool = include_remediation
+        self.theme: Dict[str, Any] = get_theme(theme_config)
 
         # Initialize template engine
         self._setup_template_engine()
@@ -81,28 +82,31 @@ class Reporter:
         # Create output directory
         self.output_path.mkdir(parents=True, exist_ok=True)
 
-        formats = [f.strip() for f in self.output_format.split(",")]
-        last_output_file = None
-        valid_formats = {"html", "pdf", "markdown", "json", "sarif", "junit"}
+        formats: List[str] = [f.strip() for f in self.output_format.split(",")]
+        last_output_file: Optional[Path] = None
+        valid_formats: Set[str] = {"html", "pdf", "markdown", "json", "sarif", "junit"}
+        
         for fmt in formats:
             if fmt not in valid_formats:
-                raise ValueError(f"Unknown format: '{fmt}'. Supported formats: {', '.join(sorted(valid_formats))}")
+                raise ChaosKittenReportingError(f"Unknown format: '{fmt}'. Supported formats: {', '.join(sorted(valid_formats))}")
+            
             # Generate filename
+            report_filename: str
             # CI/CD Compatibility: If sarif, use standard names
             if fmt == "sarif":
-                filename = "results.sarif"
+                report_filename = "results.sarif"
             elif fmt == "junit":
-                filename = "results.xml"
+                report_filename = "results.xml"
             else:
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                filename = f"chaos-kitten-{timestamp}.{self._get_extension(fmt)}"
+                timestamp: str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                report_filename = f"chaos-kitten-{timestamp}.{self._get_extension(fmt)}"
 
-            output_file = self.output_path / filename
+            output_file: Path = self.output_path / report_filename
 
             # Generate report based on format
             if fmt == "html":
-                content = self._generate_html(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                html_content = self._generate_html(scan_results, target_url)
+                output_file.write_text(html_content, encoding="utf-8")
             elif fmt == "pdf":
                 if not WEASYPRINT_AVAILABLE:
                     logger.warning(
@@ -110,11 +114,11 @@ class Reporter:
                         "Install with: pip install chaos-kitten[pdf] or pip install weasyprint"
                     )
                     continue
-                content = self._generate_html(scan_results, target_url)
-                self._generate_pdf(content, output_file)
+                html_content = self._generate_html(scan_results, target_url)
+                self._generate_pdf(html_content, output_file)
             elif fmt == "markdown":
-                content = self._generate_markdown(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                markdown_content = self._generate_markdown(scan_results, target_url)
+                output_file.write_text(markdown_content, encoding="utf-8")
             elif fmt == "sarif":
                 # Recalculate summary to get flat counts
                 try:
@@ -124,7 +128,7 @@ class Reporter:
                     vulns = scan_results.get("vulnerabilities", [])
                 
                 # Pass validated vulns to sarif generator to avoid double validation
-                content = self._generate_sarif_from_vulns(vulns, target_url)
+                sarif_content = self._generate_sarif_from_vulns(vulns, target_url)
                 
                 # Also generate minimal results.json for the CI script
                 # The CI script expects report.critical, report.high etc.
@@ -142,26 +146,26 @@ class Reporter:
                 (self.output_path / "results.json").write_text(
                     json.dumps(ci_json, indent=2), encoding="utf-8"
                 )
-                output_file.write_text(content, encoding="utf-8")
+                output_file.write_text(sarif_content, encoding="utf-8")
 
             elif fmt == "junit":
-                content = self._generate_junit(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                junit_content = self._generate_junit(scan_results, target_url)
+                output_file.write_text(junit_content, encoding="utf-8")
             else:
-                content = self._generate_json(scan_results, target_url)
-                output_file.write_text(content, encoding="utf-8")
+                json_content = self._generate_json(scan_results, target_url)
+                output_file.write_text(json_content, encoding="utf-8")
 
             last_output_file = output_file
 
         if last_output_file is None:
-            raise RuntimeError("No report was generated. Check that the requested format(s) are available.")
+            raise ChaosKittenReportingError("No report was generated. Check that the requested format(s) are available.")
 
         return last_output_file
 
-    def _get_extension(self, fmt: str = None) -> str:
+    def _get_extension(self, fmt: Optional[str] = None) -> str:
         """Get file extension for the output format."""
-        fmt = fmt or self.output_format
-        extensions = {
+        format_name: str = fmt or self.output_format
+        extensions: Dict[str, str] = {
             "html": "html",
             "pdf": "pdf",
             "markdown": "md",
@@ -169,22 +173,21 @@ class Reporter:
             "sarif": "sarif",
             "junit": "xml",
         }
-        return extensions.get(fmt, "txt")
+        return extensions.get(format_name, "txt")
 
     def _setup_template_engine(self) -> None:
         """Set up Jinja2 template engine with proper error handling."""
         try:
             # Get the template directory path relative to this file
-            template_dir = Path(__file__).parent / "templates"
-
+            template_dir: Path = Path(__file__).parent / "templates"
             if not template_dir.exists():
-                raise FileNotFoundError(
+                raise ChaosKittenReportingError(
                     f"Template directory not found: {template_dir}. "
                     f"Please ensure the templates directory exists in {template_dir.parent}"
                 )
 
             # Initialize Jinja2 environment
-            self.template_env = Environment(
+            self.template_env: Environment = Environment(
                 loader=FileSystemLoader(str(template_dir)),
                 autoescape=True,  # Security: prevent XSS in HTML reports
                 trim_blocks=True,
@@ -192,15 +195,13 @@ class Reporter:
             )
 
         except PermissionError as e:
-            raise PermissionError(
+            raise ChaosKittenReportingError(
                 f"Permission denied accessing template directory: {template_dir}. "
                 f"Please check file permissions. Original error: {e}"
             ) from e
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to initialize template engine: {e}. "
-                f"Please check template directory setup."
-            ) from e
+            logger.error(f"Failed to setup template engine: {e}")
+            raise ChaosKittenReportingError(f"Template setup failed: {e}") from e
 
     def _load_template(self, template_name: str) -> Any:
         """Load a Jinja2 template with error handling.
@@ -218,13 +219,13 @@ class Reporter:
         try:
             return self.template_env.get_template(template_name)
         except TemplateNotFound as e:
-            template_dir = Path(__file__).parent / "templates"
-            raise FileNotFoundError(
+            template_dir: Path = Path(__file__).parent / "templates"
+            raise ChaosKittenReportingError(
                 f"Template file '{template_name}' not found in {template_dir}. "
                 f"Available templates: {list(template_dir.glob('*.html')) + list(template_dir.glob('*.md'))}"
             ) from e
         except TemplateError as e:
-            raise TemplateError(
+            raise ChaosKittenReportingError(
                 f"Template '{template_name}' has syntax errors: {e}. "
                 f"Please check the template file for valid Jinja2 syntax."
             ) from e
@@ -245,36 +246,36 @@ class Reporter:
             TypeError: If vulnerability data types are incorrect
         """
         if not isinstance(results, dict):
-            raise TypeError(f"Expected dict for results, got {type(results)}")
+            raise ChaosKittenReportingError(f"Expected dict for results, got {type(results)}")
 
         # Extract vulnerabilities from results
-        vulnerabilities = results.get("vulnerabilities", [])
+        vulnerabilities: List[Any] = results.get("vulnerabilities", [])
         if not isinstance(vulnerabilities, list):
-            raise TypeError(
+            raise ChaosKittenReportingError(
                 f"Expected list for vulnerabilities, got {type(vulnerabilities)}"
             )
 
-        validated_vulns = []
-        used_ids = set()
+        validated_vulns: List[Dict[str, Any]] = []
+        used_ids: Set[str] = set()
 
         for i, vuln in enumerate(vulnerabilities):
             if not isinstance(vuln, dict):
-                raise TypeError(f"Vulnerability {i} must be a dict, got {type(vuln)}")
+                raise ChaosKittenReportingError(f"Vulnerability {i} must be a dict, got {type(vuln)}")
 
             # Validate required fields
-            required_fields = ["title", "description"]
+            required_fields: List[str] = ["title", "description"]
             for field in required_fields:
                 if field not in vuln:
-                    raise ValueError(
+                    raise ChaosKittenReportingError(
                         f"Vulnerability {i} missing required field: {field}"
                     )
                 if not isinstance(vuln[field], str) or not vuln[field].strip():
-                    raise ValueError(
+                    raise ChaosKittenReportingError(
                         f"Vulnerability {i} field '{field}' must be a non-empty string"
                     )
 
             # Add default values for optional fields
-            validated_vuln = vuln.copy()
+            validated_vuln: Dict[str, Any] = vuln.copy()
             validated_vuln.setdefault("severity", "medium")
             validated_vuln.setdefault("proof_of_concept", "")
             validated_vuln.setdefault(
@@ -284,11 +285,11 @@ class Reporter:
             validated_vuln.setdefault("method", "GET")
 
             # Handle ID assignment and uniqueness validation
-            vuln_id = vuln.get("id", f"vuln_{i}")
+            vuln_id: str = vuln.get("id", f"vuln_{i}")
             if vuln_id in used_ids:
                 # Generate a unique ID if duplicate found
-                counter = 1
-                original_id = vuln_id
+                counter: int = 1
+                original_id: str = vuln_id
                 while vuln_id in used_ids:
                     vuln_id = f"{original_id}_{counter}"
                     counter += 1
@@ -300,7 +301,7 @@ class Reporter:
             used_ids.add(vuln_id)
 
             # Validate severity level
-            valid_severities = ["critical", "high", "medium", "low"]
+            valid_severities: List[str] = ["critical", "high", "medium", "low"]
             if validated_vuln["severity"].lower() not in valid_severities:
                 logger.warning(
                     f"Warning: Invalid severity '{validated_vuln['severity']}' for vulnerability {i}, defaulting to 'medium'"
@@ -324,13 +325,13 @@ class Reporter:
         Returns:
             Dictionary containing executive summary statistics
         """
-        total_vulns = len(vulnerabilities)
+        total_vulns: int = len(vulnerabilities)
 
         # Count by severity
-        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        severity_counts: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
 
         for vuln in vulnerabilities:
-            severity = vuln.get("severity", "medium").lower()
+            severity: str = vuln.get("severity", "medium").lower()
             if severity in severity_counts:
                 severity_counts[severity] += 1
 
@@ -357,19 +358,19 @@ class Reporter:
         Returns:
             Processed vulnerability data with display formatting
         """
-        severity = vuln.get("severity", "medium").lower()
+        severity: str = vuln.get("severity", "medium").lower()
 
         # Map severity to CSS classes
-        severity_mapping = {
+        severity_mapping: Dict[str, Dict[str, str]] = {
             "critical": {"class": "severity-critical", "color": "red"},
             "high": {"class": "severity-high", "color": "orange"},
             "medium": {"class": "severity-medium", "color": "yellow"},
             "low": {"class": "severity-low", "color": "green"},
         }
 
-        severity_info = severity_mapping.get(severity, severity_mapping["medium"])
+        severity_info: Dict[str, str] = severity_mapping.get(severity, severity_mapping["medium"])
 
-        processed = vuln.copy()
+        processed: Dict[str, Any] = vuln.copy()
         processed.update(
             {
                 "severity_class": severity_info["class"],
@@ -396,12 +397,12 @@ class Reporter:
             output_path: Path to save the PDF file
         """
         try:
-            template_dir = Path(__file__).parent / "templates"
+            template_dir: Path = Path(__file__).parent / "templates"
             HTML(string=html_content, base_url=str(template_dir)).write_pdf(target=output_path)
             logger.info(f"Generated PDF report: {output_path}")
         except Exception as e:
             logger.error(f"Failed to generate PDF report: {e}")
-            raise
+            raise ChaosKittenReportingError(f"Failed to generate PDF report: {e}") from e
 
 
     def _generate_html(self, results: Dict[str, Any], target: str) -> str:
@@ -448,12 +449,12 @@ class Reporter:
 
                 # Load and render template
                 template = self._load_template("report.html")
-                return template.render(**context)
+                return str(template.render(**context))
 
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid vulnerability data: {e}") from e
+                raise ChaosKittenReportingError(f"Invalid vulnerability data: {e}") from e
             except TemplateError as e:
-                raise TemplateError(f"HTML template rendering failed: {e}") from e
+                raise ChaosKittenReportingError(f"HTML template rendering failed: {e}") from e
 
     
     def _generate_markdown(self, results: Dict[str, Any], target: str) -> str:
@@ -514,12 +515,12 @@ class Reporter:
 
                 # Load and render template
                 template = self._load_template("report.md")
-                return template.render(**context)
+                return str(template.render(**context))
 
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid vulnerability data: {e}") from e
+                raise ChaosKittenReportingError(f"Invalid vulnerability data: {e}") from e
             except TemplateError as e:
-                raise TemplateError(f"Markdown template rendering failed: {e}") from e
+                raise ChaosKittenReportingError(f"Markdown template rendering failed: {e}") from e
 
     
     def _generate_json(self, results: Dict[str, Any], target: str) -> str:
@@ -554,7 +555,7 @@ class Reporter:
                 return json.dumps(report_data, indent=2, ensure_ascii=False)
 
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid vulnerability data for JSON export: {e}") from e
+                raise ChaosKittenReportingError(f"Invalid vulnerability data for JSON export: {e}") from e
 
     
     def _generate_sarif_from_vulns(self, vulnerabilities: List[Dict[str, Any]], target: str) -> str:
@@ -568,7 +569,7 @@ class Reporter:
                 Generated SARIF report content
             """
             try:
-                rules = []
+                rules: List[Dict[str, Any]] = []
                 sarif_results = []
                 rule_indices = {}
 
@@ -644,7 +645,7 @@ class Reporter:
                 return json.dumps(sarif_report, indent=2)
 
             except Exception as e:
-                raise ValueError(f"Failed to generate SARIF report: {e}") from e
+                raise ChaosKittenReportingError(f"Failed to generate SARIF report: {e}") from e
 
     
     def _map_severity_to_sarif(self, severity: str) -> str:
@@ -721,4 +722,4 @@ class Reporter:
             return parsed.toprettyxml(indent="  ")
 
         except Exception as e:
-            raise ValueError(f"Failed to generate JUnit report: {e}") from e
+            raise ChaosKittenReportingError(f"Failed to generate JUnit report: {e}") from e

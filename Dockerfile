@@ -1,8 +1,7 @@
 # Stage 1: Builder
-# Use Python 3.12-slim as the base image for building
 FROM python:3.12-slim AS builder
 
-WORKDIR /app
+WORKDIR /build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,16 +27,18 @@ COPY toys/ toys/
 RUN pip install .[browser]
 
 
-# Stage 2: Runtime
-# Use Python 3.12-slim for the final image
-FROM python:3.12-slim
+# Stage 2: Runner
+FROM python:3.12-slim AS runner
+
+# Set environment variables for security and performance
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Create non-root user for security
+RUN useradd -m -r -s /bin/bash chaos
 
 WORKDIR /app
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH"
 
 # Install runtime dependencies required for Playwright
 # Playwright needs some system libraries to run browsers
@@ -63,23 +64,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Copy application code
-COPY --from=builder /app/chaos_kitten /app/chaos_kitten
-COPY --from=builder /app/toys /app/toys
-# Need copying README and pyproject if the package metadata relies on them at runtime? 
-# Usually installed in venv site-packages. But let's verify if CLI needs local files.
-# The CLI typically imports from site-packages.
+# Copy application code from builder
+COPY --from=builder /build/chaos_kitten /app/chaos_kitten
+COPY --from=builder /build/toys /app/toys
 
-# Install Playwright browsers (chromium only to save space/time, unless configured otherwise)
-# Since we installed playwright in the venv, we can use it.
-# Note: chaos-kitten uses Playwright for XSS testing.
+# Change ownership of the app directory to the chaos user
+RUN chown -R chaos:chaos /app
+
+# Install Playwright browsers (chromium only to save space/time)
+# Since we installed playwright in the venv, we can use it
 RUN playwright install chromium --with-deps
 
-# Create directories for reports and toys if they need to be mounted
-RUN mkdir -p /app/reports /app/toys
+# Create directories for reports and toys with proper ownership
+RUN mkdir -p /app/reports /app/toys && \
+    chown -R chaos:chaos /app/reports /app/toys
 
-# Set entrypoint
-ENTRYPOINT ["chaos-kitten"]
+# Switch to non-root user BEFORE setting entrypoint
+USER chaos
+
+# Set entrypoint to run the application
+ENTRYPOINT ["python", "-m", "chaos_kitten"]
 
 # Default command matches typical usage (help)
 CMD ["--help"]

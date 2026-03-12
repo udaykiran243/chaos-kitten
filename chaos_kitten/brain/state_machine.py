@@ -23,6 +23,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
+from chaos_kitten.exceptions import ChaosKittenParsingError, ChaosKittenError
 
 logger = logging.getLogger(__name__)
 
@@ -499,7 +500,8 @@ class StateMachineAgent:
         if isinstance(body, str):
             try:
                 data = json.loads(body)
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Failed to parse JSON body: {e}")
                 data = {}
         elif isinstance(body, dict):
             data = body

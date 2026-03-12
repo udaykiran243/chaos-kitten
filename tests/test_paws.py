@@ -253,14 +253,12 @@ class TestExecutor:
     async def test_execute_without_context_manager(self):
         """Test that execute_attack fails gracefully without context manager."""
         executor = Executor(base_url="http://test.com")
-        result = await executor.execute_attack(
-            method="GET",
-            path="/api/test"
-        )
         
-        assert result["status_code"] == 0
-        assert result["error"] is not None
-        assert "not initialized" in result["error"].lower()
+        with pytest.raises(RuntimeError, match="Executor not initialized.*async with"):
+            await executor.execute_attack(
+                method="GET",
+                path="/api/test"
+            )
     
     @pytest.mark.asyncio
     async def test_unsupported_http_method(self):

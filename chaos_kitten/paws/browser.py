@@ -4,7 +4,22 @@ import logging
 import asyncio
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from chaos_kitten.exceptions import ChaosKittenNetworkError, ChaosKittenError
+
+if TYPE_CHECKING:
+    try:
+        from playwright.async_api import (
+            Browser,
+            BrowserContext,
+            Dialog,
+            Error as PlaywrightError,
+            Page,
+            Playwright,
+            async_playwright,
+        )
+    except ImportError:
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +68,13 @@ class BrowserExecutor:
             headless: Run browser in headless mode. Default True.
             timeout: Default timeout in milliseconds. Default 10000.
         """
-        self.headless = headless
-        self.timeout = timeout
+        self.headless: bool = headless
+        self.timeout: int = timeout
         self._playwright: Optional[Playwright] = None
         self._browser: Optional[Browser] = None
         self._context: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
-        self._playwright_available = PLAYWRIGHT_AVAILABLE
+        self._playwright_available: bool = PLAYWRIGHT_AVAILABLE
 
     async def __aenter__(self) -> "BrowserExecutor":
         """Context manager entry - launch browser."""
@@ -82,7 +97,7 @@ class BrowserExecutor:
             logger.error(f"Failed to launch browser: {e}")
             if self._playwright:
                 await self._playwright.stop()
-            raise
+            raise ChaosKittenNetworkError(f"Failed to launch browser: {e}") from e
 
         return self
 
@@ -103,11 +118,11 @@ class BrowserExecutor:
     def _check_playwright(self) -> None:
         """Check if Playwright is available and initialized."""
         if not self._playwright_available:
-            raise RuntimeError(
+            raise ChaosKittenNetworkError(
                 "Playwright is not installed. Install with 'pip install playwright'."
             )
         if not self._browser or not self._context:
-            raise RuntimeError(
+            raise ChaosKittenNetworkError(
                 "Browser not initialized. Use 'async with BrowserExecutor()' context manager."
             )
 
@@ -137,11 +152,11 @@ class BrowserExecutor:
             bool: True if login appears successful
         """
         self._check_playwright()
-        page = self._page
+        page: Optional[Page] = self._page
         if not page:
             # Should have commonly been created in __aenter__
             # But let's handle if context/page management is different
-            page = await self._context.new_page()
+            page = await self._context.new_page()  # type: ignore
             self._page = page
 
         try:
@@ -175,16 +190,16 @@ class BrowserExecutor:
             Dict containing cookies and potential headers.
         """
         self._check_playwright()
-        cookies = await self._context.cookies()
+        cookies: List[Dict[str, Any]] = await self._context.cookies()
         
         # Convert playwright cookies to dict specifically for httpx/requests
-        cookie_dict = {c['name']: c['value'] for c in cookies}
+        cookie_dict: Dict[str, str] = {c['name']: c['value'] for c in cookies}
         
         # We could also export local storage if needed, via page.evaluate
         return {
             "cookies": cookie_dict,
             "headers": {
-                "User-Agent": await self._page.evaluate("navigator.userAgent") 
+                "User-Agent": await self._page.evaluate("navigator.userAgent")  # type: ignore
             }
         }
 
@@ -212,15 +227,15 @@ class BrowserExecutor:
             return {"is_vulnerable": False, "screenshot_path": None, "error": str(e)}
 
         page: Optional[Page] = None
-        triggered_alert = False
-        screenshot_path = None
+        triggered_alert: bool = False
+        screenshot_path: Optional[str] = None
 
         try:
-            page = await self._context.new_page()
+            page = await self._context.new_page()  # type: ignore
 
             async def handle_dialog(dialog: Dialog) -> None:
                 nonlocal triggered_alert
-                msg = dialog.message
+                msg: str = dialog.message
                 logger.info(f"Dialog triggered: {dialog.type} - {msg}")
                 # We consider any alert an XSS success in this context if triggered by our payload
                 triggered_alert = True
@@ -235,7 +250,7 @@ class BrowserExecutor:
             # Wait for selector
             try:
                 await page.wait_for_selector(
-                    input_selector, state="visible", timeout=self.timeout / 2
+                    input_selector, state="visible", timeout=self.timeout // 2
                 )
             except Exception:
                 # If an alert already triggered (e.g. reflected XSS on
@@ -247,8 +262,8 @@ class BrowserExecutor:
                         f"(selector '{input_selector}' not found, but alert fired)"
                     )
                     os.makedirs(screenshot_dir, exist_ok=True)
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"xss_proven_{timestamp}.png"
+                    timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename: str = f"xss_proven_{timestamp}.png"
                     screenshot_path = os.path.join(screenshot_dir, filename)
                     await page.screenshot(path=screenshot_path)
                     return {
@@ -279,8 +294,8 @@ class BrowserExecutor:
                 os.makedirs(screenshot_dir, exist_ok=True)
 
                 # Generate unique filename
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"xss_proven_{timestamp}.png"
+                timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename: str = f"xss_proven_{timestamp}.png"
                 screenshot_path = os.path.join(screenshot_dir, filename)
 
                 await page.screenshot(path=screenshot_path)
@@ -317,9 +332,9 @@ class BrowserExecutor:
 
         page: Optional[Page] = None
         try:
-            page = await self._context.new_page()
+            page = await self._context.new_page()  # type: ignore
             await page.goto(url, timeout=self.timeout)
-            title = await page.title()
+            title: str = await page.title()
             return {"title": title, "error": None}
 
         except PlaywrightError as e:
@@ -350,7 +365,7 @@ class BrowserExecutor:
         page: Optional[Page] = None
 
         try:
-            page = await self._context.new_page()
+            page = await self._context.new_page()  # type: ignore
 
             page.on("console", lambda msg: logs.append(f"{msg.type}: {msg.text}"))
 
