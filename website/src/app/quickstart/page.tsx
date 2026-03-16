@@ -776,10 +776,6 @@ security_scan:
         </div>
     </div>
 
-    {/* Go back button uses browser history */}
-    <script>
-        // you can customize behavior here if needed
-    </script>
       </div>
       <Footer />
     </>
